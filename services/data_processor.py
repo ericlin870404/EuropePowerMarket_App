@@ -251,3 +251,92 @@ def parse_da_xml_to_raw_csv_bytes(
 
     return csv_bytes
 
+def convert_raw_mtu_csv_to_hourly_csv_bytes(raw_csv_bytes: bytes) -> bytes:
+    """
+    將「原始 MTU CSV」轉換為「每小時」CSV。
+
+    輸入 CSV 欄位（已由 parse_da_xml_to_raw_csv_bytes 產生）：
+    - Date
+    - Market Time Unit (MTU)
+    - Day-ahead Price (EUR/MWh)
+
+    輸出 CSV 欄位：
+    - Date
+    - Hour  (1..24)
+    - Day-ahead Price (EUR/MWh)
+
+    規則：
+    - 若某日 MTU 數量為 24  → 視為 60 分鐘解析度，價格直接沿用（Hour = MTU）。
+    - 若某日 MTU 數量為 48  → 視為 30 分鐘解析度，每 2 個 MTU 平均為 1 小時。
+    - 若某日 MTU 數量為 96  → 視為 15 分鐘解析度，每 4 個 MTU 平均為 1 小時。
+    """
+    # 讀入原始 CSV
+    buf = io.StringIO(raw_csv_bytes.decode("utf-8"))
+    df = pd.read_csv(buf)
+
+    required_cols = {
+        "Date",
+        "Market Time Unit (MTU)",
+        "Day-ahead Price (EUR/MWh)",
+    }
+    if not required_cols.issubset(df.columns):
+        raise ValueError(
+            f"原始 CSV 欄位缺少必要欄位：{required_cols - set(df.columns)}"
+        )
+
+    df = df.copy()
+    df.sort_values(by=["Date", "Market Time Unit (MTU)"], inplace=True)
+
+    all_hourly_rows = []
+
+    # 逐日處理
+    for date_value, df_day in df.groupby("Date"):
+        df_day = df_day.copy()
+        n_points = len(df_day)
+
+        if n_points == 24:
+            # 60 分鐘解析度：一個 MTU 對應一個小時，價格直接沿用
+            df_day["Hour"] = df_day["Market Time Unit (MTU)"].astype(int)
+            hourly = df_day[["Hour", "Day-ahead Price (EUR/MWh)"]].copy()
+        elif n_points == 48:
+            # 30 分鐘解析度：每 2 個 MTU 平均成 1 小時
+            df_day["Hour"] = (df_day["Market Time Unit (MTU)"].astype(int) - 1) // 2 + 1
+            hourly = (
+                df_day.groupby("Hour", as_index=False)["Day-ahead Price (EUR/MWh)"]
+                .mean()
+            )
+        elif n_points == 96:
+            # 15 分鐘解析度：每 4 個 MTU 平均成 1 小時
+            df_day["Hour"] = (df_day["Market Time Unit (MTU)"].astype(int) - 1) // 4 + 1
+            hourly = (
+                df_day.groupby("Hour", as_index=False)["Day-ahead Price (EUR/MWh)"]
+                .mean()
+            )
+        else:
+            # 其他情況代表資料格式不在預期範圍，先明確拋錯讓問題浮現
+            raise ValueError(
+                f"日期 {date_value} 的 MTU 筆數為 {n_points}，"
+                "目前僅支援 24 / 48 / 96 筆對應 60 / 30 / 15 分鐘解析度。"
+            )
+
+        hourly.sort_values(by="Hour", inplace=True)
+
+        # 補上 Date 欄位
+        hourly.insert(0, "Date", date_value)
+
+        all_hourly_rows.append(hourly)
+
+    if not all_hourly_rows:
+        raise ValueError("轉換後沒有任何資料，請檢查原始 CSV。")
+
+    df_hourly = pd.concat(all_hourly_rows, ignore_index=True)
+
+    # 欄位順序調整為指定格式
+    df_hourly = df_hourly[["Date", "Hour", "Day-ahead Price (EUR/MWh)"]]
+
+    # 轉回 CSV bytes
+    out_buf = io.StringIO()
+    df_hourly.to_csv(out_buf, index=False)
+    hourly_csv_bytes = out_buf.getvalue().encode("utf-8")
+
+    return hourly_csv_bytes

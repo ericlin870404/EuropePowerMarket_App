@@ -3,16 +3,18 @@ from datetime import date
 
 from config.settings import SUPPORTED_COUNTRIES, DEFAULT_ENTSOE_TOKEN
 from services.data_fetcher import fetch_da_price_xml_bytes
-from services.data_processor import parse_da_xml_to_raw_csv_bytes  # ★ 新增
+from services.data_processor import (
+    parse_da_xml_to_raw_csv_bytes,
+    convert_raw_mtu_csv_to_hourly_csv_bytes,  # ★ 新增這行
+)
+
 
 def render_fetch_da_price_page() -> None:
     st.header("資料獲取｜電能現貨市場 - 日前市場價格")
 
     st.markdown(
         """
-        目前這個頁面只實作 **Step 1：下載 ENTSO-E 回傳的原始 XML**，
-        並提供「原始 MTU」格式的 CSV 檔案下載。
-        之後會再增加「每小時補值」等進階處理。
+        數據來源為 **ENTSO-E Transparency Platform**
         """
     )
 
@@ -52,15 +54,18 @@ def render_fetch_da_price_page() -> None:
                 token=token,
             )
 
-        # ★ 取得「原始 MTU」CSV
+        # ① 取得「原始 MTU」CSV
         csv_bytes_raw = parse_da_xml_to_raw_csv_bytes(
             xml_bytes=xml_bytes,
             country_code=country_code,
         )
 
+        # ② 由「原始 MTU」CSV 轉成「每小時」CSV
+        csv_bytes_hourly = convert_raw_mtu_csv_to_hourly_csv_bytes(csv_bytes_raw)
+
         st.success("下載準備完成！請選擇要下載的檔案格式：")
 
-        col_xml, col_csv_raw = st.columns(2)
+        col_xml, col_csv_raw, col_csv_hourly = st.columns(3)
 
         with col_xml:
             st.download_button(
@@ -71,22 +76,30 @@ def render_fetch_da_price_page() -> None:
             )
 
         with col_csv_raw:
-            csv_name = file_name_xml.replace(".xml", "_raw.csv")
+            csv_name_raw = file_name_xml.replace(".xml", "_raw.csv")
             st.download_button(
                 label="下載 CSV 檔案 (原始)",
                 data=csv_bytes_raw,
-                file_name=csv_name,
+                file_name=csv_name_raw,
+                mime="text/csv",
+            )
+
+        with col_csv_hourly:
+            csv_name_hourly = file_name_xml.replace(".xml", "_hourly.csv")
+            st.download_button(
+                label="下載 CSV 檔案 (每小時)",
+                data=csv_bytes_hourly,
+                file_name=csv_name_hourly,
                 mime="text/csv",
             )
 
         st.caption(
-            "＊「原始」CSV 以 MTU 序列 (1..N) 表示時間，"
-            "已依 ENTSO-E 規則補回省略的相同價格區間。"
+            "＊「原始」CSV 以 MTU (1..N) 表示時間，已依 ENTSO-E 規則補回省略的相同價格區間；"
+            "「每小時」CSV 則是依每天的解析度 (60/30/15 分鐘) 聚合為每小時平均價格。"
         )
 
     except Exception as e:
         st.error(f"下載或解析失敗：{e}")
-
 
 
 # ⭐ 加回這個函式避免 ImportError
