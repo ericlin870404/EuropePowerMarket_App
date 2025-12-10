@@ -42,3 +42,19 @@ ENTSOE_EIC_BY_COUNTRY: Dict[str, str] = {
     "CZ": "10YCZ-CEPS-----N",
     "CH": "10YCH-SWISSGRIDZ",
 }
+
+# === 簡易帳號設定（純本機用，之後可改用環境變數／資料庫） ===
+USERS = {
+    # 你自己（管理員）
+    "eric": {
+        "password": "8888",  # 建議先放一個暫時的測試密碼
+        "role": "admin",
+        "display_name": "Eric",
+    },
+    # 可以再加其他使用者（一般使用者）
+    "alice": {
+        "password": "alice123",
+        "role": "user",
+        "display_name": "Alice",
+    },
+}

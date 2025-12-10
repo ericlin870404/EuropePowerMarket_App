@@ -2,7 +2,7 @@
 import streamlit as st
 from streamlit_option_menu import option_menu
 
-from config.settings import APP_TITLE
+from config.settings import APP_TITLE, USERS
 from ui.pages import (
     render_fetch_da_price_page,
     render_fetch_afrr_capacity_page,
@@ -11,8 +11,32 @@ from ui.pages import (
 )
 from ui.ui_theme import MINIMAL_MAIN_MENU_STYLES, MINIMAL_SUB_MENU_STYLES
 
+def show_login_page():
+    """顯示登入頁，驗證成功後在 session_state 中記錄使用者資訊。"""
+    st.title(APP_TITLE)
+    st.subheader("登入")
 
-def main():
+    with st.form("login_form"):
+        username = st.text_input("帳號")
+        password = st.text_input("密碼", type="password")
+        submitted = st.form_submit_button("登入")
+
+    if submitted:
+        user = USERS.get(username)
+        if user and password == user["password"]:
+            # 登入成功：記錄在 session_state
+            st.session_state["user"] = {
+                "username": username,
+                "role": user["role"],
+                "display_name": user.get("display_name", username),
+            }
+            st.success("登入成功，正在進入系統…")
+            st.rerun()
+        else:
+            st.error("帳號或密碼錯誤，請再試一次。")
+
+
+def show_main_app():
     st.set_page_config(page_title=APP_TITLE, layout="wide")
 
     # === Sidebar 導覽列 ===
@@ -77,6 +101,14 @@ def main():
 
     elif main_choice == "繪圖區":
         render_plot_page()
+
+
+def main():
+    # 如果尚未登入 → 顯示登入頁
+    if "user" not in st.session_state:
+        show_login_page()
+    else:
+        show_main_app()
 
 
 if __name__ == "__main__":

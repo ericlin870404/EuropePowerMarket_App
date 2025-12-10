@@ -146,8 +146,7 @@ def _filter_timeseries_by_delivery_window(
 
 
 # ====== 主功能：下載日前電價 XML（並依交割日篩選） ======
-
-def fetch_da_price_xml_bytes(
+def fetch_da_price_xml_bytes( 
     start_date: date,
     end_date: date,
     country_code: str,
@@ -160,7 +159,7 @@ def fetch_da_price_xml_bytes(
     1. 以使用者輸入的 [start_date, end_date] 轉成 API 的 periodStart/periodEnd
        （這裡仍使用 end_date + 1 天，確保不漏資料）
     2. 依 MAX_DAYS_PER_REQUEST_DA 切段呼叫 API，並處理 offset 分頁
-    3. 以 TimeSeries 的 mRID 去重，合併到一個 Publication_MarketDocument
+    3. 以 TimeSeries 的 mRID 在「同一分段內」去重，合併到一個 Publication_MarketDocument
     4. 依各 TimeSeries 的交割日（本地日期）過濾，只保留
        start_date <= 交割日 <= end_date 的 TimeSeries
     5. 回傳建議檔名 + XML bytes（供 Streamlit download_button 使用）
@@ -179,9 +178,9 @@ def fetch_da_price_xml_bytes(
     # 建立 XML root
     ns_url = "urn:iec62325.351:tc57wg16:451-3:publicationdocument:7:3"
     ET.register_namespace("", ns_url)
+    
     root = ET.Element(f"{{{ns_url}}}Publication_MarketDocument")
 
-    seen_mrids: Set[str] = set()
     current_start = start_date
 
     while current_start <= end_date:
@@ -190,6 +189,9 @@ def fetch_da_price_xml_bytes(
             end_date,
         )
         print(f"[ENTSO-E] 分段抓取：{current_start} ~ {current_end}")
+
+        # 🔸 每一個「日期分段」各自有自己的去重集合
+        seen_mrids_segment: Set[str] = set()
 
         # 注意：這裡用 end_date + 1 天，是為了確保不漏資料；
         # 真正決定保留哪幾天會在後面的「交割日過濾」處理。
@@ -232,8 +234,9 @@ def fetch_da_price_xml_bytes(
                 mrid_elem = ts.find(f"./{{{ns_url}}}mRID")
                 mrid = mrid_elem.text if mrid_elem is not None else None
 
-                if mrid and mrid not in seen_mrids:
-                    seen_mrids.add(mrid)
+                # ✅ 僅在「本分段」內去重
+                if mrid and mrid not in seen_mrids_segment:
+                    seen_mrids_segment.add(mrid)
                     root.append(ts)
                     new_ts_found = True
 
