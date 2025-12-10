@@ -1,13 +1,44 @@
 # config/settings.py
+from typing import Dict
 
-APP_TITLE = "歐洲電力市場數據分析工具"
+# 應用程式標題
+APP_TITLE: str = "歐洲電力市場數據分析工具"
 
-SUPPORTED_COUNTRIES = {
-    "FR": "France",
-    # 未來可以在這裡加 ES, PT, NL...
+# ENTSO-E API 相關設定
+ENTSOE_API_BASE_URL: str = "https://web-api.tp.entsoe.eu/api"
+# A44 = Day-ahead prices（日前電價，依 ENTSO-E 文件）
+ENTSOE_DOC_TYPE_DA_PRICE: str = "A44"
+
+# 一次呼叫最多涵蓋的天數（避免日期區間過大）
+MAX_DAYS_PER_REQUEST_DA: int = 100
+
+# 之後建議改用 st.secrets["ENTSOE_API_TOKEN"]，這裡只是預設值或占位
+DEFAULT_ENTSOE_TOKEN: str = "adb582cd-6b2d-482e-84fd-1d9b2e72c8dd"
+
+# UI 下拉選單使用的國家／區域設定
+SUPPORTED_COUNTRIES: Dict[str, str] = {
+    "FR": "法國",
+    "NL": "荷蘭",
+    "ES": "西班牙",
+    "PT": "葡萄牙",
+    "IT-North": "義大利（北部）",
+    "IT-South": "義大利（南部）",
+    "BE": "比利時",
+    "GB": "英國",
+    "CZ": "捷克",
+    "CH": "瑞士",
 }
 
-API_BASE_URL = "https://transparency.entsoe.eu/api"
-API_KEY = "YOUR_API_KEY_HERE"
-
-DEFAULT_TIMEZONE = "Europe/Paris"
+# ENTSO-E 定義的 bidding zone / control area EIC codes
+ENTSOE_EIC_BY_COUNTRY: Dict[str, str] = {
+    "ES": "10YES-REE------0",
+    "PT": "10YPT-REN------W",
+    "IT-North": "10Y1001A1001A73I",
+    "IT-South": "10Y1001A1001A788",
+    "NL": "10YNL----------L",
+    "FR": "10YFR-RTE------C",
+    "BE": "10YBE----------2",
+    "GB": "10YGB----------A",
+    "CZ": "10YCZ-CEPS-----N",
+    "CH": "10YCH-SWISSGRIDZ",
+}
