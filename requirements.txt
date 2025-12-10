@@ -1,0 +1,5 @@
+streamlit
+pandas
+requests
+tkcalendar   # 如果 day_ahead.py 裡還用到 DateEntry (可選)
+streamlit-option-menu
