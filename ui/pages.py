@@ -14,7 +14,7 @@ def render_fetch_da_price_page() -> None:
 
     st.markdown(
         """
-        數據來源為 **ENTSO-E Transparency Platform**
+        數據來源為 ENTSO-E Transparency Platform
         """
     )
 

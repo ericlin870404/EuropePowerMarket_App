@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import io
 import xml.etree.ElementTree as ET
-from datetime import datetime, date, timezone
+from datetime import datetime, date, timezone, timedelta
 from typing import List, Tuple
 
 import pandas as pd
@@ -150,6 +150,27 @@ def _expand_points_with_fill(
 
     return expanded
 
+def _is_last_sunday_of_mar_or_oct(date_str: str) -> bool:
+    """
+    判斷給定日期（字串格式 YYYY/MM/DD）是否為：
+    - 3 月最後一個星期日，或
+    - 10 月最後一個星期日
+
+    註：這裡只用來粗略略過 DST 切換日，不做嚴格曆法處理。
+    """
+    dt = datetime.strptime(date_str, "%Y/%m/%d").date()
+
+    # 只關心 3 月與 10 月
+    if dt.month not in (3, 10):
+        return False
+
+    # Python 的 weekday(): 週一=0, 週日=6
+    if dt.weekday() != 6:  # 不是星期日
+        return False
+
+    # 判斷是否是「這個月的最後一個星期日」：
+    # 若再加 7 天已經跨到下一個月份，就代表它是最後一個星期日
+    return (dt + timedelta(days=7)).month != dt.month
 
 def parse_da_xml_to_raw_csv_bytes(
     xml_bytes: bytes,
@@ -291,6 +312,12 @@ def convert_raw_mtu_csv_to_hourly_csv_bytes(raw_csv_bytes: bytes) -> bytes:
 
     # 逐日處理
     for date_value, df_day in df.groupby("Date"):
+
+        # 🔸 先檢查是否為 3 月 / 10 月的最後一個星期日（推定為 DST 切換日）
+        if _is_last_sunday_of_mar_or_oct(date_value):
+            print(f"[DST] 偵測到夏令/冬令切換日 {date_value}，暫時跳過此日的每小時轉換。")
+            continue
+        
         df_day = df_day.copy()
         n_points = len(df_day)
 
