@@ -187,7 +187,8 @@ def parse_da_xml_to_raw_csv_bytes(
     額外規則：
     - 若 TimeSeries 中存在
       <classificationSequence_AttributeInstanceComponent.position>
-      且其值不為 "1"，則視為其他分類序列，整條 TimeSeries 直接略過。
+      則視為特殊序列（附加產品或分段），整條 TimeSeries 直接略過，
+      僅保留未標註 classificationSequence 的「基本價格」TimeSeries。
     """
     root = ET.fromstring(xml_bytes)
     ns = root.tag.split("}")[0].strip("{")
@@ -202,13 +203,11 @@ def parse_da_xml_to_raw_csv_bytes(
         )
         if cls_elem is not None and cls_elem.text and cls_elem.text.strip():
             cls_val = cls_elem.text.strip()
-            # 目前策略：只有 "1" 或未標註者保留，其餘 (2, 3, ...) 一律略過
-            if cls_val != "1":
-                print(
-                    "[分類序號] 跳過 TimeSeries："
-                    f"classificationSequence_AttributeInstanceComponent.position = {cls_val}"
-                )
-                continue
+            print(
+                "[分類序號] 跳過 TimeSeries："
+                f"classificationSequence_AttributeInstanceComponent.position = {cls_val}"
+            )
+            continue
 
         # === (2) 正常解析流程 ===
         delivery_day = _get_delivery_date(ts, country_code)
