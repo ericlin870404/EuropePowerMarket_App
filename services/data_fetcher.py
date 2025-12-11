@@ -231,22 +231,31 @@ def fetch_da_price_xml_bytes(
 
             new_ts_found = False
             for ts in time_series_list:
+                # 1. 取得 mRID
                 mrid_elem = ts.find(f"./{{{ns_url}}}mRID")
-                mrid = mrid_elem.text if mrid_elem is not None else None
+                mrid = mrid_elem.text if mrid_elem is not None else "UNKNOWN"
 
-                # ✅ 僅在「本分段」內去重
-                if mrid and mrid not in seen_mrids_segment:
-                    seen_mrids_segment.add(mrid)
+                # 2. 取得 Start Time (增加唯一性判斷)
+                # 路徑: Period -> timeInterval -> start
+                period_start_elem = ts.find(f"./{{{ns_url}}}Period/{{{ns_url}}}timeInterval/{{{ns_url}}}start")
+                period_start_val = period_start_elem.text if period_start_elem is not None else "UNKNOWN"
+
+                # 3. 組合唯一的 Key (mRID + StartTime)
+                unique_key = (mrid, period_start_val)
+
+                # 4. 使用組合 Key 進行去重
+                if unique_key not in seen_mrids_segment:
+                    seen_mrids_segment.add(unique_key)  # 加入 Set
                     root.append(ts)
                     new_ts_found = True
 
             if not new_ts_found:
-                print("[ENTSO-E] 本分段分頁沒有新 TimeSeries，停止分頁。")
+                print("[ENTSO-E] 本分段分頁沒有新 TimeSeries（依據 mRID+Time 判斷），停止分頁。")
                 break
 
             offset += 100
             page += 1
-            time.sleep(1.0)  # 避免對 API 造成過大壓力
+            time.sleep(1.0)
 
         current_start = current_end + timedelta(days=1)
 

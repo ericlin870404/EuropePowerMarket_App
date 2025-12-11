@@ -5,7 +5,7 @@ from __future__ import annotations
 import io
 import xml.etree.ElementTree as ET
 from datetime import datetime, date, timezone, timedelta
-from typing import List, Tuple
+from typing import List, Tuple, Set
 
 import pandas as pd
 from zoneinfo import ZoneInfo
@@ -189,11 +189,15 @@ def parse_da_xml_to_raw_csv_bytes(
       <classificationSequence_AttributeInstanceComponent.position>
       則視為特殊序列（附加產品或分段），整條 TimeSeries 直接略過，
       僅保留未標註 classificationSequence 的「基本價格」TimeSeries。
+    - 同一交割日只保留「第一條」有效 TimeSeries，其餘同日 TimeSeries 一律略過。
     """
     root = ET.fromstring(xml_bytes)
     ns = root.tag.split("}")[0].strip("{")
 
     rows = []
+
+    # 🔴 修正點：追蹤已處理過的交割日，避免同一天有多條 TimeSeries
+    seen_delivery_days: Set[date] = set()
 
     for ts in root.findall(f".//{{{ns}}}TimeSeries"):
 
@@ -209,8 +213,18 @@ def parse_da_xml_to_raw_csv_bytes(
             )
             continue
 
-        # === (2) 正常解析流程 ===
+        # === (2) 取得交割日 ===
         delivery_day = _get_delivery_date(ts, country_code)
+
+        # 🔴 修正點：同一天只保留第一條 TimeSeries
+        if delivery_day in seen_delivery_days:
+            print(
+                f"[交割日去重] 跳過 TimeSeries：交割日 {delivery_day} 已經有一條有效序列，"
+                "避免同日重複造成 192 筆 MTU 等問題。"
+            )
+            continue
+        else:
+            seen_delivery_days.add(delivery_day)
 
         period = ts.find(f"{{{ns}}}Period")
         if period is None:
@@ -270,6 +284,7 @@ def parse_da_xml_to_raw_csv_bytes(
     csv_bytes = buf.getvalue().encode("utf-8")
 
     return csv_bytes
+
 
 def convert_raw_mtu_csv_to_hourly_csv_bytes(raw_csv_bytes: bytes) -> bytes:
     """
