@@ -10,8 +10,6 @@ from typing import List, Tuple, Set
 import pandas as pd
 from zoneinfo import ZoneInfo
 
-from config.settings import SUPPORTED_COUNTRIES  # 只是為了方便知道有哪些代碼
-
 
 # === 時區對照表：和 data_fetcher 裡的邏輯保持一致 ===
 TZ_BY_COUNTRY = {
@@ -300,10 +298,15 @@ def convert_raw_mtu_csv_to_hourly_csv_bytes(raw_csv_bytes: bytes) -> bytes:
     - Hour  (1..24)
     - Day-ahead Price (EUR/MWh)
 
-    規則：
-    - 若某日 MTU 數量為 24  → 視為 60 分鐘解析度，價格直接沿用（Hour = MTU）。
-    - 若某日 MTU 數量為 48  → 視為 30 分鐘解析度，每 2 個 MTU 平均為 1 小時。
-    - 若某日 MTU 數量為 96  → 視為 15 分鐘解析度，每 4 個 MTU 平均為 1 小時。
+    支援解析度：
+    - 60 分鐘：每日 24 筆
+    - 30 分鐘：每日 48 筆（每 2 筆平均成 1 小時）
+    - 15 分鐘：每日 96 筆（每 4 筆平均成 1 小時）
+
+    DST 暫行策略（目前先不嚴格處理 DST）：
+    - 若某日筆數不在支援範圍（例如 23 / 25 / 192），可選擇：
+      1) 跳過該日（由 settings 控制），或
+      2) 直接拋錯讓問題浮現
     """
     # 讀入原始 CSV
     buf = io.StringIO(raw_csv_bytes.decode("utf-8"))
@@ -319,6 +322,17 @@ def convert_raw_mtu_csv_to_hourly_csv_bytes(raw_csv_bytes: bytes) -> bytes:
             f"原始 CSV 欄位缺少必要欄位：{required_cols - set(df.columns)}"
         )
 
+    # === 從 settings 取得支援解析度與行為控制 ===
+    # 請依你的專案路徑調整 import（例如 config.settings / settings）
+    from config.settings import (
+        DA_SUPPORTED_RESOLUTION_MINUTES,
+        DA_SKIP_UNSUPPORTED_MTU_DAYS,
+        # DA_SKIP_LAST_SUNDAY_DSTS,
+    )
+
+    # 允許的每日筆數集合（例如 60min -> 24, 30min -> 48, 15min -> 96）
+    allowed_counts = {int(1440 / m) for m in DA_SUPPORTED_RESOLUTION_MINUTES}
+
     df = df.copy()
     df.sort_values(by=["Date", "Market Time Unit (MTU)"], inplace=True)
 
@@ -326,19 +340,33 @@ def convert_raw_mtu_csv_to_hourly_csv_bytes(raw_csv_bytes: bytes) -> bytes:
 
     # 逐日處理
     for date_value, df_day in df.groupby("Date"):
-
-        # 🔸 先檢查是否為 3 月 / 10 月的最後一個星期日（推定為 DST 切換日）
-        if _is_last_sunday_of_mar_or_oct(date_value):
-            print(f"[DST] 偵測到夏令/冬令切換日 {date_value}，暫時跳過此日的每小時轉換。")
-            continue
-        
         df_day = df_day.copy()
         n_points = len(df_day)
 
+        # # （可選）仍保留最後一個週日粗略 DST 跳過（建議先關掉，改用筆數判斷為主）
+        # if DA_SKIP_LAST_SUNDAY_DSTS and _is_last_sunday_of_mar_or_oct(date_value):
+        #     print(f"[DST] 偵測到夏令/冬令切換日 {date_value}，暫時跳過此日的每小時轉換。")
+        #     continue
+
+        # ✅ 先用「每日筆數」當作安全閘門（跨國更穩健）
+        if n_points not in allowed_counts:
+            msg = (
+                f"日期 {date_value} 的 MTU 筆數為 {n_points}，"
+                f"不符合目前支援的筆數 {sorted(allowed_counts)} "
+                f"(對應解析度分鐘：{DA_SUPPORTED_RESOLUTION_MINUTES})。"
+            )
+            if DA_SKIP_UNSUPPORTED_MTU_DAYS:
+                print(f"[警告] {msg} → 暫時跳過此日。")
+                continue
+            else:
+                raise ValueError(msg)
+
+        # === 正常處理（只會是 24 / 48 / 96 或你設定允許的筆數）===
         if n_points == 24:
             # 60 分鐘解析度：一個 MTU 對應一個小時，價格直接沿用
             df_day["Hour"] = df_day["Market Time Unit (MTU)"].astype(int)
             hourly = df_day[["Hour", "Day-ahead Price (EUR/MWh)"]].copy()
+
         elif n_points == 48:
             # 30 分鐘解析度：每 2 個 MTU 平均成 1 小時
             df_day["Hour"] = (df_day["Market Time Unit (MTU)"].astype(int) - 1) // 2 + 1
@@ -346,6 +374,7 @@ def convert_raw_mtu_csv_to_hourly_csv_bytes(raw_csv_bytes: bytes) -> bytes:
                 df_day.groupby("Hour", as_index=False)["Day-ahead Price (EUR/MWh)"]
                 .mean()
             )
+
         elif n_points == 96:
             # 15 分鐘解析度：每 4 個 MTU 平均成 1 小時
             df_day["Hour"] = (df_day["Market Time Unit (MTU)"].astype(int) - 1) // 4 + 1
@@ -353,8 +382,9 @@ def convert_raw_mtu_csv_to_hourly_csv_bytes(raw_csv_bytes: bytes) -> bytes:
                 df_day.groupby("Hour", as_index=False)["Day-ahead Price (EUR/MWh)"]
                 .mean()
             )
+
         else:
-            # 其他情況代表資料格式不在預期範圍，先明確拋錯讓問題浮現
+            # 理論上不會走到這裡（因為前面已用 allowed_counts 擋掉）
             raise ValueError(
                 f"日期 {date_value} 的 MTU 筆數為 {n_points}，"
                 "目前僅支援 24 / 48 / 96 筆對應 60 / 30 / 15 分鐘解析度。"

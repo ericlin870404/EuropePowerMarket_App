@@ -43,6 +43,16 @@ ENTSOE_EIC_BY_COUNTRY: Dict[str, str] = {
     "CH": "10YCH-SWISSGRIDZ",
 }
 
+# ===== Day-Ahead (DA) Market - Time Resolution Settings =====
+# 目前工具在「原始 MTU CSV → 每小時 CSV」階段可接受的時間解析度（分鐘）
+DA_SUPPORTED_RESOLUTION_MINUTES = [60, 30, 15]
+
+# 是否在遇到「非支援 MTU 筆數」的日期時，直接跳過該日（True）或拋錯（False）
+DA_SKIP_UNSUPPORTED_MTU_DAYS = True
+
+# 是否仍保留「最後一個週日」的粗略 DST 跳過邏輯（可選）
+# DA_SKIP_LAST_SUNDAY_DSTS = False
+
 # === 簡易帳號設定（純本機用，之後可改用環境變數／資料庫） ===
 USERS = {
     # 你自己（管理員）
