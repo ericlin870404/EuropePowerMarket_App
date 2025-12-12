@@ -10,6 +10,7 @@ from typing import List, Tuple, Set
 import pandas as pd
 from zoneinfo import ZoneInfo
 
+from utils.timezone_helper import get_da_delivery_date_from_timeseries
 
 # === 時區對照表：和 data_fetcher 裡的邏輯保持一致 ===
 TZ_BY_COUNTRY = {
@@ -212,7 +213,7 @@ def parse_da_xml_to_raw_csv_bytes(
             continue
 
         # === (2) 取得交割日 ===
-        delivery_day = _get_delivery_date(ts, country_code)
+        delivery_day = get_da_delivery_date_from_timeseries(ts)
 
         # 🔴 修正點：同一天只保留第一條 TimeSeries
         if delivery_day in seen_delivery_days:

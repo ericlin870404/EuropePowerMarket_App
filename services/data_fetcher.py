@@ -15,7 +15,10 @@ from config.settings import (
     ENTSOE_DOC_TYPE_DA_PRICE,
     ENTSOE_EIC_BY_COUNTRY,
     MAX_DAYS_PER_REQUEST_DA,
+    DA_MARKET_TIMEZONE,
 )
+
+from utils.timezone_helper import get_da_delivery_date_from_timeseries
 
 # 各國時區（用來把 UTC 轉成本地時間，取得交割日）
 TZ_BY_COUNTRY = {
@@ -77,41 +80,6 @@ def _get_timezone_for_country(country_code: str) -> ZoneInfo:
     return ZoneInfo(tz_name)
 
 
-def get_delivery_date_from_timeseries(
-    ts: ET.Element,
-    country_code: str,
-) -> date:
-    """
-    由單一 TimeSeries 判斷「交割日」（當地日期）。
-
-    作法：
-    - 讀取 Period/timeInterval/start (UTC)
-    - 轉換成對應國家的本地時間
-    - 取 local datetime 的 .date() 當成交割日
-    例如：
-    - 2024-12-31T23:00Z → 2025-01-01 00:00 (Europe/Paris) → 2025-01-01
-    """
-    ns = ts.tag.split("}")[0].strip("{")
-
-    period = ts.find(f"{{{ns}}}Period")
-    if period is None:
-        raise ValueError("TimeSeries 缺少 Period 元素。")
-
-    time_interval = period.find(f"{{{ns}}}timeInterval")
-    if time_interval is None:
-        raise ValueError("Period 缺少 timeInterval 元素。")
-
-    start_elem = time_interval.find(f"{{{ns}}}start")
-    if start_elem is None or not (start_elem.text and start_elem.text.strip()):
-        raise ValueError("timeInterval 缺少 start 元素或內容。")
-
-    utc_start = _parse_utc_datetime(start_elem.text)
-    tz = _get_timezone_for_country(country_code)
-    local_start = utc_start.astimezone(tz)
-
-    return local_start.date()
-
-
 def _filter_timeseries_by_delivery_window(
     root: ET.Element,
     country_code: str,
@@ -131,7 +99,7 @@ def _filter_timeseries_by_delivery_window(
     removed = 0
     for ts in all_ts:
         try:
-            delivery_day = get_delivery_date_from_timeseries(ts, country_code)
+            delivery_day = get_da_delivery_date_from_timeseries(ts)
         except Exception as e:
             # 如遇到格式問題，不直接中斷，可視情況改成 raise
             print(f"[交割日過濾] 解析 TimeSeries 交割日失敗，跳過此筆：{e}")

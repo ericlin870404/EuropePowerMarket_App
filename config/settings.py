@@ -53,6 +53,8 @@ DA_SKIP_UNSUPPORTED_MTU_DAYS = True
 # 是否仍保留「最後一個週日」的粗略 DST 跳過邏輯（可選）
 # DA_SKIP_LAST_SUNDAY_DSTS = False
 
+DA_MARKET_TIMEZONE = "Europe/Brussels"
+
 # === 簡易帳號設定（純本機用，之後可改用環境變數／資料庫） ===
 USERS = {
     # 你自己（管理員）
