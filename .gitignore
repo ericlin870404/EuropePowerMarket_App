@@ -1,1 +1,6 @@
 *.xlsx
+# Generated CSV data
+*.csv
+
+# Python bytecode
+*.pyc
