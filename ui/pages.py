@@ -1,7 +1,11 @@
 import streamlit as st
 from datetime import date
 
-from config.settings import SUPPORTED_COUNTRIES, DEFAULT_ENTSOE_TOKEN
+from config.settings import (
+    SUPPORTED_COUNTRIES, 
+    DEFAULT_ENTSOE_TOKEN, 
+    DA_SUPPORTED_COUNTRIES 
+)
 from services.data_fetcher import fetch_da_price_xml_bytes
 from services.data_processor import (
     parse_da_xml_to_raw_csv_bytes,
@@ -14,7 +18,7 @@ def render_fetch_da_price_page() -> None:
 
     st.markdown(
         """
-        數據來源為 ENTSO-E Transparency Platform
+        數據來源為 **ENTSO-E Transparency Platform**
         """
     )
 
@@ -25,10 +29,16 @@ def render_fetch_da_price_page() -> None:
         with col2:
             end_date = st.date_input("結束日期", value=date.today())
 
+        # 2. 修改這裡的 options
         country_code = st.selectbox(
             "選擇國家 / 區域",
-            options=list(SUPPORTED_COUNTRIES.keys()),
-            format_func=lambda c: SUPPORTED_COUNTRIES[c],
+            # 修改前: options=list(SUPPORTED_COUNTRIES.keys()),
+            # 修改後: 只使用 DA 市場支援的國家列表
+            options=DA_SUPPORTED_COUNTRIES,  
+            
+            # format_func 保持不變，它會拿 options 裡的代碼 (如 "FR") 
+            # 去 SUPPORTED_COUNTRIES 字典查對應的中文名稱 (如 "法國")
+            format_func=lambda c: SUPPORTED_COUNTRIES[c], 
         )
 
         submitted = st.form_submit_button("向 ENTSO-E 下載原始 XML")
