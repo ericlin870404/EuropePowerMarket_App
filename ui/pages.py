@@ -1,3 +1,18 @@
+"""
+📌 整體流程：
+1. 引入必要套件、設定與服務層函式
+2. 定義 render_fetch_da_price_page()：日前市場價格頁面
+   2-1. 建立搜尋表單 (日期、國家)
+   2-2. 執行輸入驗證 (日期順序、Token)
+   2-3. 呼叫 API 取得原始 XML 資料
+   2-4. 執行資料處理 (依設定檔決定是否解析 CSV/Hourly)
+   2-5. 渲染下載按鈕 (依設定檔動態排版)
+3. 定義其他功能頁面 (aFRR、資料處理、繪圖)
+"""
+
+# =========================== #
+# 1 🔹 引入必要套件與設定
+# =========================== #
 import streamlit as st
 from datetime import date
 
@@ -11,10 +26,13 @@ from config.settings import (
 from services.data_fetcher import fetch_da_price_xml_bytes
 from services.data_processor import (
     parse_da_xml_to_raw_csv_bytes,
-    convert_raw_mtu_csv_to_hourly_csv_bytes,  # ★ 新增這行
+    convert_raw_mtu_csv_to_hourly_csv_bytes,  
 )
 
 
+# =========================== #
+# 2 🔹 定義 render_fetch_da_price_page()
+# =========================== #
 def render_fetch_da_price_page() -> None:
     st.header("資料獲取｜電能現貨市場 - 日前市場價格")
 
@@ -24,6 +42,7 @@ def render_fetch_da_price_page() -> None:
         """
     )
 
+    # 2-1 🔹 建立搜尋表單 (日期、國家)
     with st.form("fetch_da_price_form"):
         col1, col2 = st.columns(2)
         with col1:
@@ -31,11 +50,10 @@ def render_fetch_da_price_page() -> None:
         with col2:
             end_date = st.date_input("結束日期", value=date.today())
 
-        # 2. 修改這裡的 options
+        # 修改這裡的 options
         country_code = st.selectbox(
             "選擇國家 / 區域",
-            # 修改前: options=list(SUPPORTED_COUNTRIES.keys()),
-            # 修改後: 只使用 DA 市場支援的國家列表
+            # 只使用 DA 市場支援的國家列表
             options=DA_SUPPORTED_COUNTRIES,  
             
             # format_func 保持不變，它會拿 options 裡的代碼 (如 "FR") 
@@ -48,6 +66,7 @@ def render_fetch_da_price_page() -> None:
     if not submitted:
         return
 
+    # 2-2 🔹 執行輸入驗證 (日期順序、Token)
     if start_date > end_date:
         st.error("開始日期不能晚於結束日期。")
         return
@@ -58,6 +77,7 @@ def render_fetch_da_price_page() -> None:
         return
 
     try:
+        # 2-3 🔹 呼叫 API 取得原始 XML 資料
         with st.spinner("正在從 ENTSO-E 取得日前價格資料（原始 XML）…"):
             file_name_xml, xml_bytes = fetch_da_price_xml_bytes(
                 start_date=start_date,
@@ -66,6 +86,7 @@ def render_fetch_da_price_page() -> None:
                 token=token,
             )
 
+        # 2-4 🔹 執行資料處理 (依設定檔決定是否解析 CSV/Hourly)
         # 準備資料：只在對應功能開啟時才進行轉換
         csv_bytes_raw = None
         csv_bytes_hourly = None
@@ -93,6 +114,7 @@ def render_fetch_da_price_page() -> None:
 
         st.success("下載準備完成！請選擇要下載的檔案格式：")
 
+        # 2-5 🔹 渲染下載按鈕 (依設定檔動態排版)
         # 計算需要多少欄位來排版
         active_download_options = [k for k, v in DA_DOWNLOAD_OPTIONS.items() if v]
         col_count = len(active_download_options)
@@ -151,7 +173,9 @@ def render_fetch_da_price_page() -> None:
         st.error(f"下載或解析失敗：{e}")
 
 
-# ⭐ 加回這個函式避免 ImportError
+# =========================== #
+# 3 🔹 定義其他功能頁面
+# =========================== #
 def render_fetch_afrr_capacity_page():
     st.header("資料獲取｜平衡服務市場 - aFRR 容量價格")
     st.info("此功能尚未實作。")

@@ -1,4 +1,18 @@
 # app.py
+"""
+📌 整體流程：
+1. 引入必要套件與設定
+2. 定義 show_login_page()：處理使用者登入與 Session 驗證
+3. 定義 show_main_app()：建構主畫面架構
+   3-1. 側邊欄：第一層主選單 (資料獲取/處理/繪圖)
+   3-2. 側邊欄：第二層子選單 (動態顯示)
+   3-3. 路由判斷：依據選單呼叫對應頁面函式
+4. 定義 main()：程式入口與登入狀態檢查
+"""
+
+# =========================== #
+# 1 🔹 引入必要套件與設定
+# =========================== #
 import streamlit as st
 from streamlit_option_menu import option_menu
 
@@ -11,6 +25,9 @@ from ui.pages import (
 )
 from ui.ui_theme import MINIMAL_MAIN_MENU_STYLES, MINIMAL_SUB_MENU_STYLES
 
+# =========================== #
+# 2 🔹 定義 show_login_page()
+# =========================== #
 def show_login_page():
     """顯示登入頁，驗證成功後在 session_state 中記錄使用者資訊。"""
     st.title(APP_TITLE)
@@ -36,6 +53,9 @@ def show_login_page():
             st.error("帳號或密碼錯誤，請再試一次。")
 
 
+# =========================== #
+# 3 🔹 定義 show_main_app()
+# =========================== #
 def show_main_app():
     st.set_page_config(page_title=APP_TITLE, layout="wide")
 
@@ -43,7 +63,7 @@ def show_main_app():
     with st.sidebar:
         st.markdown("### 歐洲電力市場工具")
 
-        # 第一層：三大區塊（Notion 風格）
+        # 3-1 🔹 側邊欄：第一層主選單 (資料獲取/處理/繪圖)
         main_choice = option_menu(
             menu_title=None,
             options=["資料獲取", "資料處理", "繪圖區"],
@@ -52,7 +72,7 @@ def show_main_app():
             styles=MINIMAL_MAIN_MENU_STYLES,
         )
 
-        # 第二層：依主選單顯示子項目（Notion 風格）
+        # 3-2 🔹 側邊欄：第二層子選單 (動態顯示)
         sub_choice = None
 
         if main_choice == "資料獲取":
@@ -89,7 +109,7 @@ def show_main_app():
                 styles=MINIMAL_SUB_MENU_STYLES,
             )
 
-    # === 主畫面依選項顯示內容 ===
+    # 3-3 🔹 路由判斷：依據選單呼叫對應頁面函式
     if main_choice == "資料獲取":
         if sub_choice == "電能現貨市場 - 日前市場價格":
             render_fetch_da_price_page()
@@ -103,6 +123,9 @@ def show_main_app():
         render_plot_page()
 
 
+# =========================== #
+# 4 🔹 定義 main()
+# =========================== #
 def main():
     # 如果尚未登入 → 顯示登入頁
     if "user" not in st.session_state:

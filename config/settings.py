@@ -1,33 +1,49 @@
-# config/settings.py
+"""
+📌 整體流程：
+1. 定義應用程式基礎資訊 (標題)
+2. 定義 API 連線設定
+   2-1. 基礎 URL 與 Token
+   2-2. 日前市場 (DA) 專屬參數 (DocType, 天數限制, 解析度, 下載功能開關)
+3. 定義國家與區域設定
+   3-1. 支援國家列表 (中文名稱)
+   3-2. ENTSO-E EIC 代碼對照表
+   3-3. DA 市場支援國家清單
+4. 定義使用者帳號 (登入權限)
+"""
+
 from typing import Dict
 
-# 應用程式標題
+# =========================== #
+# 1 🔹 定義應用程式基礎資訊
+# =========================== #
 APP_TITLE: str = "歐洲電力市場數據分析工具"
 
-##################################
-# ======== API 相關設定 ========
-##################################
+# =========================== #
+# 2 🔹 定義 API 連線設定
+# =========================== #
 
-# ----- Overall ----- #
+# 2-1 🔹 基礎 URL 與 Token
 ENTSOE_API_BASE_URL: str = "https://web-api.tp.entsoe.eu/api" 
-DEFAULT_ENTSOE_TOKEN: str = "adb582cd-6b2d-482e-84fd-1d9b2e72c8dd" # API token，之後建議改用 st.secrets["ENTSOE_API_TOKEN"]
+DEFAULT_ENTSOE_TOKEN: str = "adb582cd-6b2d-482e-84fd-1d9b2e72c8dd"
 
-# ----- 電能現貨市場(日前市場) ----- #
+# 2-2 🔹 日前市場 (DA) 專屬參數
 ENTSOE_DOC_TYPE_DA_PRICE: str = "A44"              # A44 = Day-ahead prices
-MAX_DAYS_PER_REQUEST_DA: int = 100                 # 一次呼叫最多涵蓋的天數（避免日期區間過大）
-DA_SUPPORTED_RESOLUTION_MINUTES = [60, 30, 15]     # 為「原始 MTU CSV → 每小時 CSV」階段可接受的時間解析度（分鐘）
-DA_SKIP_UNSUPPORTED_MTU_DAYS = True                # 是否在遇到「非支援 MTU 筆數」的日期時，直接跳過該日（True）或拋錯（False）
-DA_MARKET_TIMEZONE = "Europe/Brussels"             # 時區設定
+MAX_DAYS_PER_REQUEST_DA: int = 100                 # 一次呼叫最多涵蓋的天數
+DA_SUPPORTED_RESOLUTION_MINUTES = [60, 30, 15]     # 支援的時間解析度
+DA_SKIP_UNSUPPORTED_MTU_DAYS = True                # 是否跳過不支援的解析度日期
+DA_MARKET_TIMEZONE = "Europe/Brussels"             # ENTSO-E 市場時區
+# 下載功能開關 (DA_DOWNLOAD_OPTIONS)
 DA_DOWNLOAD_OPTIONS: Dict[str, bool] = {
-    "xml_original": True,     # 允許下載「原始 XML 檔案」
-    "csv_raw_mtu": True,      # 允許下載「CSV 檔案 (原始 MTU)」
-    "csv_hourly": True,       # 允許下載「CSV 檔案 (每小時)」
+    "xml_original": True,     # 開關：原始 XML
+    "csv_raw_mtu": True,      # 開關：原始 MTU CSV
+    "csv_hourly": True,       # 開關：每小時 CSV
 }
-##################################
-# ========== 國家設定 ===========
-##################################
 
-# ----- Overall ----- #
+# =========================== #
+# 3 🔹 定義國家與區域設定
+# =========================== #
+
+# 3-1 🔹 支援國家列表 (中文名稱)
 SUPPORTED_COUNTRIES: Dict[str, str] = {
     "FR": "法國",
     "NL": "荷蘭",
@@ -41,6 +57,7 @@ SUPPORTED_COUNTRIES: Dict[str, str] = {
     "CH": "瑞士",
 }
 
+# 3-2 🔹 ENTSO-E EIC 代碼對照表
 ENTSOE_EIC_BY_COUNTRY: Dict[str, str] = {
     "ES": "10YES-REE------0",
     "PT": "10YPT-REN------W",
@@ -54,22 +71,18 @@ ENTSOE_EIC_BY_COUNTRY: Dict[str, str] = {
     "CH": "10YCH-SWISSGRIDZ",
 }
 
-# ----- 電能現貨市場(日前市場) ----- #
+# 3-3 🔹 DA 市場支援國家清單
 DA_SUPPORTED_COUNTRIES = ["FR", "NL", "ES", "PT", "IT-North", "IT-South", "BE", "CZ", "CH"]  
 
-
-##################################
-# ========== 帳號設定 ===========
-##################################
-
+# =========================== #
+# 4 🔹 定義使用者帳號
+# =========================== #
 USERS = {
-    # 你自己（管理員）
     "eric": {
-        "password": "8888",  # 建議先放一個暫時的測試密碼
+        "password": "8888",
         "role": "admin",
         "display_name": "Eric",
     },
-    # 可以再加其他使用者（一般使用者）
     "alice": {
         "password": "alice123",
         "role": "user",
