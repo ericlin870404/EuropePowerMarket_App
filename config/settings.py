@@ -18,7 +18,11 @@ MAX_DAYS_PER_REQUEST_DA: int = 100                 # 一次呼叫最多涵蓋的
 DA_SUPPORTED_RESOLUTION_MINUTES = [60, 30, 15]     # 為「原始 MTU CSV → 每小時 CSV」階段可接受的時間解析度（分鐘）
 DA_SKIP_UNSUPPORTED_MTU_DAYS = True                # 是否在遇到「非支援 MTU 筆數」的日期時，直接跳過該日（True）或拋錯（False）
 DA_MARKET_TIMEZONE = "Europe/Brussels"             # 時區設定
-
+DA_DOWNLOAD_OPTIONS: Dict[str, bool] = {
+    "xml_original": True,     # 允許下載「原始 XML 檔案」
+    "csv_raw_mtu": True,      # 允許下載「CSV 檔案 (原始 MTU)」
+    "csv_hourly": True,       # 允許下載「CSV 檔案 (每小時)」
+}
 ##################################
 # ========== 國家設定 ===========
 ##################################
