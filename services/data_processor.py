@@ -1,72 +1,40 @@
 # services/data_processor.py
 
+"""
+📌 整體流程：
+1. 引入必要套件與設定
+2. 定義輔助工具 (解析度計算、補值邏輯)
+3. 定義主功能：XML 轉 Raw CSV (parse_da_xml_to_raw_csv_bytes)
+   3-1. 讀取 XML 並過濾 classificationSequence
+   3-2. 透過 Helper 取得交割日並去重
+   3-3. 解析 Point 並依 ENTSO-E 規則補值
+   3-4. 輸出 Raw CSV Bytes
+4. 定義主功能：Raw CSV 轉 Hourly CSV (convert_raw_mtu_csv_to_hourly_csv_bytes)
+   4-1. 讀取 Raw CSV 並檢查欄位
+   4-2. 依 settings 設定檢查每日資料筆數 (24/48/96)
+   4-3. 聚合運算 (平均值) 轉換為小時資料
+   4-4. 輸出 Hourly CSV Bytes
+"""
+
 from __future__ import annotations
 
 import io
 import xml.etree.ElementTree as ET
-from datetime import datetime, date, timezone, timedelta
+from datetime import date
 from typing import List, Tuple, Set
 
 import pandas as pd
-from zoneinfo import ZoneInfo
 
+from config.settings import (
+    DA_SUPPORTED_RESOLUTION_MINUTES,
+    DA_SKIP_UNSUPPORTED_MTU_DAYS,
+)
 from utils.timezone_helper import get_da_delivery_date_from_timeseries
 
-# === 時區對照表：和 data_fetcher 裡的邏輯保持一致 ===
-TZ_BY_COUNTRY = {
-    "FR": "Europe/Paris",
-    "BE": "Europe/Brussels",
-    "NL": "Europe/Amsterdam",
-    "ES": "Europe/Madrid",
-    "PT": "Europe/Lisbon",
-    "IT-North": "Europe/Rome",
-    "IT-South": "Europe/Rome",
-    "GB": "Europe/London",
-    "CZ": "Europe/Prague",
-    "CH": "Europe/Zurich",
-}
 
-
-def _parse_utc_datetime(dt_str: str) -> datetime:
-    """將 '2025-01-05T23:00Z' 之類字串轉成 UTC datetime。"""
-    s = dt_str.strip()
-    if s.endswith("Z"):
-        s = s[:-1]
-        dt = datetime.fromisoformat(s)
-        return dt.replace(tzinfo=timezone.utc)
-    return datetime.fromisoformat(s).replace(tzinfo=timezone.utc)
-
-
-def _get_timezone_for_country(country_code: str) -> ZoneInfo:
-    tz_name = TZ_BY_COUNTRY.get(country_code, "UTC")
-    return ZoneInfo(tz_name)
-
-
-def _get_delivery_date(ts: ET.Element, country_code: str) -> date:
-    """
-    從單一 TimeSeries 取得交割日（當地日期）：
-    timeInterval.start (UTC) → 轉當地時區 → 取日期。
-    """
-    ns = ts.tag.split("}")[0].strip("{")
-
-    period = ts.find(f"{{{ns}}}Period")
-    if period is None:
-        raise ValueError("TimeSeries 缺少 Period 元素。")
-
-    ti = period.find(f"{{{ns}}}timeInterval")
-    if ti is None:
-        raise ValueError("Period 缺少 timeInterval 元素。")
-
-    start_elem = ti.find(f"{{{ns}}}start")
-    if start_elem is None or not (start_elem.text and start_elem.text.strip()):
-        raise ValueError("timeInterval 缺少 start。")
-
-    utc_start = _parse_utc_datetime(start_elem.text)
-    tz = _get_timezone_for_country(country_code)
-    local_start = utc_start.astimezone(tz)
-    return local_start.date()
-
-
+# =========================== #
+# 2 🔹 定義輔助工具
+# =========================== #
 def _resolution_to_expected_points(resolution: str) -> int:
     """
     將 'PT60M' 等解析成一天應有的點數。
@@ -74,7 +42,6 @@ def _resolution_to_expected_points(resolution: str) -> int:
     - PT60M → 24
     - PT30M → 48
     - PT15M → 96
-    若遇到其他格式，會拋出錯誤，之後再視情況擴充。
     """
     res = resolution.strip().upper()
     if not res.startswith("PT") or not res.endswith("M"):
@@ -105,8 +72,8 @@ def _expand_points_with_fill(
     - expected_points: 一天應有的點數（如 24 / 48 / 96）。
 
     規則：
-    - 若 position 有跳號，例如 4 → 6，則補上 5，價格 = position 4 的價格。
-    - 若最後一筆 position < expected_points，例如 23/24，則 24 的價格 = position 23 的價格。
+    1. 若 position 有跳號，例如 4 → 6，則補上 5，價格 = position 4 的價格。
+    2. 若最後一筆 position < expected_points，則後續價格皆沿用最後一筆價格。
     """
     if not points:
         return []
@@ -116,14 +83,13 @@ def _expand_points_with_fill(
 
     prev_pos, prev_price = points[0]
     if prev_pos != 1:
-        # 理論上第一個 position 應為 1，若不是就報錯，避免亂填。
+        # 理論上第一個 position 應為 1
         raise ValueError(f"第一個 position 不是 1，而是 {prev_pos}，資料格式可能異常。")
 
     expanded.append((prev_pos, prev_price))
 
     for pos, price in points[1:]:
         if pos <= prev_pos:
-            # 非遞增代表資料有問題，先跳過或 raise；這裡選擇 raise 讓問題浮現
             raise ValueError(f"position 非遞增：{prev_pos} → {pos}")
 
         # 若中間有缺值，例如 prev_pos=4, pos=6，則補上 5
@@ -139,8 +105,6 @@ def _expand_points_with_fill(
         for missing_pos in range(prev_pos + 1, expected_points + 1):
             expanded.append((missing_pos, prev_price))
 
-    # 若實際比 expected 還多，也先保留但提醒一下
-    # （實務上不太可能發生，若發生代表 resolution 計算邏輯要檢查）
     if prev_pos > expected_points:
         print(
             f"[警告] 此 TimeSeries 最後 position={prev_pos}，"
@@ -149,77 +113,41 @@ def _expand_points_with_fill(
 
     return expanded
 
-def _is_last_sunday_of_mar_or_oct(date_str: str) -> bool:
-    """
-    判斷給定日期（字串格式 YYYY/MM/DD）是否為：
-    - 3 月最後一個星期日，或
-    - 10 月最後一個星期日
 
-    註：這裡只用來粗略略過 DST 切換日，不做嚴格曆法處理。
-    """
-    dt = datetime.strptime(date_str, "%Y/%m/%d").date()
-
-    # 只關心 3 月與 10 月
-    if dt.month not in (3, 10):
-        return False
-
-    # Python 的 weekday(): 週一=0, 週日=6
-    if dt.weekday() != 6:  # 不是星期日
-        return False
-
-    # 判斷是否是「這個月的最後一個星期日」：
-    # 若再加 7 天已經跨到下一個月份，就代表它是最後一個星期日
-    return (dt + timedelta(days=7)).month != dt.month
-
+# =========================== #
+# 3 🔹 定義主功能：XML 轉 Raw CSV
+# =========================== #
 def parse_da_xml_to_raw_csv_bytes(
     xml_bytes: bytes,
     country_code: str,
 ) -> bytes:
     """
-    將日前電價 XML 解析為「原始」CSV：
-
-    欄位：
-    - Date: 交割日（當地日期，格式 YYYY/MM/DD）
-    - Market Time Unit (MTU): position（補值後 1..N）
-    - Day-ahead Price (EUR/MWh): 對應價格，依 ENTSO-E 規則補值
-
-    額外規則：
-    - 若 TimeSeries 中存在
-      <classificationSequence_AttributeInstanceComponent.position>
-      則視為特殊序列（附加產品或分段），整條 TimeSeries 直接略過，
-      僅保留未標註 classificationSequence 的「基本價格」TimeSeries。
-    - 同一交割日只保留「第一條」有效 TimeSeries，其餘同日 TimeSeries 一律略過。
+    將日前電價 XML 解析為「原始」CSV。
     """
     root = ET.fromstring(xml_bytes)
     ns = root.tag.split("}")[0].strip("{")
 
     rows = []
-
-    # 🔴 修正點：追蹤已處理過的交割日，避免同一天有多條 TimeSeries
     seen_delivery_days: Set[date] = set()
 
     for ts in root.findall(f".//{{{ns}}}TimeSeries"):
 
-        # === (1) classificationSequence 過濾 ===
+        # 3-1 🔹 classificationSequence 過濾 (跳過特殊序列)
         cls_elem = ts.find(
             f"{{{ns}}}classificationSequence_AttributeInstanceComponent.position"
         )
         if cls_elem is not None and cls_elem.text and cls_elem.text.strip():
             cls_val = cls_elem.text.strip()
-            print(
-                "[分類序號] 跳過 TimeSeries："
-                f"classificationSequence_AttributeInstanceComponent.position = {cls_val}"
-            )
+            print(f"[分類序號] 跳過 TimeSeries (Seq={cls_val})")
             continue
 
-        # === (2) 取得交割日 ===
+        # 3-2 🔹 取得交割日並去重
+        # 這裡直接使用 timezone_helper，確保邏輯統一
         delivery_day = get_da_delivery_date_from_timeseries(ts)
 
-        # 🔴 修正點：同一天只保留第一條 TimeSeries
         if delivery_day in seen_delivery_days:
             print(
-                f"[交割日去重] 跳過 TimeSeries：交割日 {delivery_day} 已經有一條有效序列，"
-                "避免同日重複造成 192 筆 MTU 等問題。"
+                f"[交割日去重] 跳過 TimeSeries：交割日 {delivery_day} 已存在有效序列。"
             )
             continue
         else:
@@ -236,7 +164,7 @@ def parse_da_xml_to_raw_csv_bytes(
         resolution_str = res_elem.text.strip()
         expected_points = _resolution_to_expected_points(resolution_str)
 
-        # 收集原始 Point
+        # 3-3 🔹 解析 Point 並依 ENTSO-E 規則補值
         raw_points: List[Tuple[int, float]] = []
         for pt in period.findall(f"{{{ns}}}Point"):
             pos_elem = pt.find(f"{{{ns}}}position")
@@ -258,7 +186,6 @@ def parse_da_xml_to_raw_csv_bytes(
             print("[警告] 某一個 TimeSeries 完全沒有 Point，已略過。")
             continue
 
-        # 依 ENTSO-E 規則補足缺漏 position
         expanded_points = _expand_points_with_fill(raw_points, expected_points)
 
         date_str = delivery_day.strftime("%Y/%m/%d")
@@ -272,6 +199,7 @@ def parse_da_xml_to_raw_csv_bytes(
                 }
             )
 
+    # 3-4 🔹 輸出 Raw CSV Bytes
     if not rows:
         raise ValueError("解析後沒有任何資料，請檢查 XML 內容。")
 
@@ -280,36 +208,18 @@ def parse_da_xml_to_raw_csv_bytes(
 
     buf = io.StringIO()
     df.to_csv(buf, index=False)
-    csv_bytes = buf.getvalue().encode("utf-8")
-
-    return csv_bytes
+    return buf.getvalue().encode("utf-8")
 
 
+# =========================== #
+# 4 🔹 定義主功能：Raw CSV 轉 Hourly CSV
+# =========================== #
 def convert_raw_mtu_csv_to_hourly_csv_bytes(raw_csv_bytes: bytes) -> bytes:
     """
     將「原始 MTU CSV」轉換為「每小時」CSV。
-
-    輸入 CSV 欄位（已由 parse_da_xml_to_raw_csv_bytes 產生）：
-    - Date
-    - Market Time Unit (MTU)
-    - Day-ahead Price (EUR/MWh)
-
-    輸出 CSV 欄位：
-    - Date
-    - Hour  (1..24)
-    - Day-ahead Price (EUR/MWh)
-
-    支援解析度：
-    - 60 分鐘：每日 24 筆
-    - 30 分鐘：每日 48 筆（每 2 筆平均成 1 小時）
-    - 15 分鐘：每日 96 筆（每 4 筆平均成 1 小時）
-
-    DST 暫行策略（目前先不嚴格處理 DST）：
-    - 若某日筆數不在支援範圍（例如 23 / 25 / 192），可選擇：
-      1) 跳過該日（由 settings 控制），或
-      2) 直接拋錯讓問題浮現
+    支援解析度：60min (24筆), 30min (48筆), 15min (96筆)。
     """
-    # 讀入原始 CSV
+    # 4-1 🔹 讀取 Raw CSV 並檢查欄位
     buf = io.StringIO(raw_csv_bytes.decode("utf-8"))
     df = pd.read_csv(buf)
 
@@ -323,14 +233,6 @@ def convert_raw_mtu_csv_to_hourly_csv_bytes(raw_csv_bytes: bytes) -> bytes:
             f"原始 CSV 欄位缺少必要欄位：{required_cols - set(df.columns)}"
         )
 
-    # === 從 settings 取得支援解析度與行為控制 ===
-    # 請依你的專案路徑調整 import（例如 config.settings / settings）
-    from config.settings import (
-        DA_SUPPORTED_RESOLUTION_MINUTES,
-        DA_SKIP_UNSUPPORTED_MTU_DAYS,
-        # DA_SKIP_LAST_SUNDAY_DSTS,
-    )
-
     # 允許的每日筆數集合（例如 60min -> 24, 30min -> 48, 15min -> 96）
     allowed_counts = {int(1440 / m) for m in DA_SUPPORTED_RESOLUTION_MINUTES}
 
@@ -339,22 +241,15 @@ def convert_raw_mtu_csv_to_hourly_csv_bytes(raw_csv_bytes: bytes) -> bytes:
 
     all_hourly_rows = []
 
-    # 逐日處理
+    # 4-2 🔹 依 settings 設定檢查每日資料筆數
     for date_value, df_day in df.groupby("Date"):
         df_day = df_day.copy()
         n_points = len(df_day)
 
-        # # （可選）仍保留最後一個週日粗略 DST 跳過（建議先關掉，改用筆數判斷為主）
-        # if DA_SKIP_LAST_SUNDAY_DSTS and _is_last_sunday_of_mar_or_oct(date_value):
-        #     print(f"[DST] 偵測到夏令/冬令切換日 {date_value}，暫時跳過此日的每小時轉換。")
-        #     continue
-
-        # ✅ 先用「每日筆數」當作安全閘門（跨國更穩健）
         if n_points not in allowed_counts:
             msg = (
                 f"日期 {date_value} 的 MTU 筆數為 {n_points}，"
-                f"不符合目前支援的筆數 {sorted(allowed_counts)} "
-                f"(對應解析度分鐘：{DA_SUPPORTED_RESOLUTION_MINUTES})。"
+                f"不符合目前支援的筆數 {sorted(allowed_counts)}。"
             )
             if DA_SKIP_UNSUPPORTED_MTU_DAYS:
                 print(f"[警告] {msg} → 暫時跳過此日。")
@@ -362,14 +257,14 @@ def convert_raw_mtu_csv_to_hourly_csv_bytes(raw_csv_bytes: bytes) -> bytes:
             else:
                 raise ValueError(msg)
 
-        # === 正常處理（只會是 24 / 48 / 96 或你設定允許的筆數）===
+        # 4-3 🔹 聚合運算 (平均值) 轉換為小時資料
         if n_points == 24:
-            # 60 分鐘解析度：一個 MTU 對應一個小時，價格直接沿用
+            # 60 分鐘解析度
             df_day["Hour"] = df_day["Market Time Unit (MTU)"].astype(int)
             hourly = df_day[["Hour", "Day-ahead Price (EUR/MWh)"]].copy()
 
         elif n_points == 48:
-            # 30 分鐘解析度：每 2 個 MTU 平均成 1 小時
+            # 30 分鐘解析度
             df_day["Hour"] = (df_day["Market Time Unit (MTU)"].astype(int) - 1) // 2 + 1
             hourly = (
                 df_day.groupby("Hour", as_index=False)["Day-ahead Price (EUR/MWh)"]
@@ -377,38 +272,27 @@ def convert_raw_mtu_csv_to_hourly_csv_bytes(raw_csv_bytes: bytes) -> bytes:
             )
 
         elif n_points == 96:
-            # 15 分鐘解析度：每 4 個 MTU 平均成 1 小時
+            # 15 分鐘解析度
             df_day["Hour"] = (df_day["Market Time Unit (MTU)"].astype(int) - 1) // 4 + 1
             hourly = (
                 df_day.groupby("Hour", as_index=False)["Day-ahead Price (EUR/MWh)"]
                 .mean()
             )
-
         else:
-            # 理論上不會走到這裡（因為前面已用 allowed_counts 擋掉）
-            raise ValueError(
-                f"日期 {date_value} 的 MTU 筆數為 {n_points}，"
-                "目前僅支援 24 / 48 / 96 筆對應 60 / 30 / 15 分鐘解析度。"
-            )
+            # 理論上不會執行到此 (已由 allowed_counts 把關)
+            continue
 
         hourly.sort_values(by="Hour", inplace=True)
-
-        # 補上 Date 欄位
         hourly.insert(0, "Date", date_value)
-
         all_hourly_rows.append(hourly)
 
     if not all_hourly_rows:
         raise ValueError("轉換後沒有任何資料，請檢查原始 CSV。")
 
+    # 4-4 🔹 輸出 Hourly CSV Bytes
     df_hourly = pd.concat(all_hourly_rows, ignore_index=True)
-
-    # 欄位順序調整為指定格式
     df_hourly = df_hourly[["Date", "Hour", "Day-ahead Price (EUR/MWh)"]]
 
-    # 轉回 CSV bytes
     out_buf = io.StringIO()
     df_hourly.to_csv(out_buf, index=False)
-    hourly_csv_bytes = out_buf.getvalue().encode("utf-8")
-
-    return hourly_csv_bytes
+    return out_buf.getvalue().encode("utf-8")
