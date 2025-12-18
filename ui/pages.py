@@ -27,6 +27,7 @@ from services.data_fetcher import fetch_da_price_xml_bytes
 from services.data_processor import (
     parse_da_xml_to_raw_csv_bytes,
     convert_raw_mtu_csv_to_hourly_csv_bytes,  
+    calculate_daily_stats,
 )
 
 
@@ -172,6 +173,43 @@ def render_fetch_da_price_page() -> None:
                 "＊ 「原始 CSV」為 ENTSO-E 呈現的數據；"
                 "「每小時 CSV」則是依每天的解析度 (60/30/15 分鐘) 聚合為每小時平均價格。"
             )
+
+            # ========================================== #
+            # 🆕 新增功能：進階統計與分析區塊
+            # ========================================== #
+            # 只有當「每小時 CSV」存在時，我們才能進行每日統計運算
+            if csv_bytes_hourly is not None:
+                st.divider()  # 畫一條分隔線
+                
+                st.markdown("### 📊 進階分析結果")
+                
+                # 🟢 修改：expanded=False (預設收合，使用者想看再點開)
+                with st.expander("每日平均電價與價差統計", expanded=False):
+                    
+                    # 呼叫 Processor 計算
+                    stats_csv_bytes, summary = calculate_daily_stats(csv_bytes_hourly)
+                    
+                    # 🟢 修改：加入「平均電價」的顯示資訊
+                    st.info(
+                        f"**📅 資料區間**：{summary['start_date']} ~ {summary['end_date']}\n\n"
+                        f"**⚡ 平均電價**： $\\large {summary['avg_price']}$ `EUR/MWh`\n\n"
+                        f"**📉 平均電價差**： $\\large {summary['avg_spread']}$ `EUR/MWh`\n\n"
+                        f"**🚀 最大電價差**： $\\large {summary['max_spread']}$ `EUR/MWh` "
+                        f"(發生在 {summary['max_spread_date']})"
+                    )
+
+                    # 下載按鈕排版 (維持靠左)
+                    stats_cols = st.columns([2, 5]) 
+                    with stats_cols[0]:
+                        stats_file_name = file_name_xml.replace(".xml", "_daily_stats.csv")
+                        st.download_button(
+                            label="下載每日統計數據",
+                            data=stats_csv_bytes,
+                            file_name=stats_file_name,
+                            mime="text/csv",
+                            type="primary",
+                            use_container_width=True
+                        )
         else:
             st.warning("所有下載功能皆已關閉。")
 
