@@ -1,6 +1,7 @@
+
 # 🧩 歐洲電力市場數據分析工具
 
-European Electricity Market Data Analysis Tool
+**European Electricity Market Data Analysis Tool**
 
 本工具以 **Streamlit** 開發，目標是協助能源從業人員快速取得、處理與分析 **歐洲電力市場（ENTSO-E Transparency Platform）** 的公開資料，並支援原始 XML 下載、資料補值、解析度轉換（MTU → Hourly）、及未來的視覺化功能。
 
@@ -11,32 +12,25 @@ European Electricity Market Data Analysis Tool
 ### **1. 資料獲取（Raw Data Fetching）**
 
 - 支援從 **ENTSO-E Transparency Platform** 下載日前市場價格（Day-Ahead Price, A44）。
-- 自動處理：
-    - 多天分段抓取
-    - API offset 分頁
-    - 去重（依 mRID）
-    - 交割日判斷（依國家時區）
-    - 自動合併成單一 XML
-
----
+- **智慧化資料抓取流程**：
+    - 自動處理多天分段請求（避免 API 超時）。
+    - 處理 API offset 分頁邏輯。
+    - **去重機制**：依據 `mRID` 與 `startTime` 組合鍵值進行資料去重。
+    - **精準交割日過濾**：透過統一的時區輔助模組，精確篩選出目標日期的 TimeSeries。
 
 ### **2. 資料處理（Data Processing）**
 
 - 將下載的 XML 解析並產生：
-    - **原始 MTU CSV**（含補值後完整 MTU 序列）
-    - **逐時 Hourly CSV**（依 60/30/15 分鐘解析度自動平均）
+    - **原始 MTU CSV**（含補值後完整 MTU 序列）。
+    - **逐時 Hourly CSV**（依 60/30/15 分鐘解析度自動平均）。
 - 處理 ENTSO-E 特性：
-    - 相同價格省略後續點 → 自動補值
-    - classificationSequence 過濾
-    - 解析 resolution：PT60M / PT30M / PT15M
-
----
+    - **自動補值**：依據 ENTSO-E 規則，自動補齊被省略的相同價格區間。
+    - **序列過濾**：自動過濾非預設（classificationSequence）的資料序列。
+    - **解析度相容**：支援 PT60M / PT30M / PT15M 等多種時間解析度。
 
 ### **3. 繪圖區（Plotting Area）**
 
 （尚未實作 — 預留折線圖、堆疊圖、比較圖等快速視覺化功能）
-
----
 
 ### **4. 登入系統（User Authentication）**
 
@@ -46,23 +40,26 @@ European Electricity Market Data Analysis Tool
 
 ## 📦 專案結構
 
-```
+```text
 歐洲電力市場分析App/
 │
-├─ app.py                         # 主程式入口，負責登入與頁面切換
+├─ app.py                         # 主程式入口，負責登入驗證、Session 管理與頁面路由
 │
 ├─ config/
-│   └─ settings.py                # 系統設定：API Token、EIC、國家列表、使用者帳號
+│   └─ settings.py                # 系統設定：API Token、EIC 對照表、市場規範參數
 │
 ├─ services/
-│   ├─ data_fetcher.py            # 核心：下載日前 XML，自動分段與交割日過濾
-│   └─ data_processor.py          # XML → MTU CSV → Hourly CSV 的資料處理邏輯
+│   ├─ data_fetcher.py            # 服務層：與 ENTSO-E API 通訊，下載並過濾原始 XML
+│   └─ data_processor.py          # 服務層：執行 XML 解析、補值運算與 CSV 轉換
+│
+├─ utils/
+│   └─ timezone_helper.py         # 工具層：統一處理時區轉換與交割日判定邏輯
 │
 ├─ ui/
-│   ├─ pages.py                   # Streamlit 頁面 UI（下載、資料處理、繪圖）
-│   └─ ui_theme.py                # 主選單/子選單的 UI 樣式設定
+│   ├─ pages.py                   # UI 層：定義各功能頁面的佈局與互動邏輯
+│   └─ ui_theme.py                # UI 層：選單樣式與視覺主題設定
 │
-└─ download/                      # 原始資料與 CSV 下載儲存區（可空）
+└─ download/                      # (Optional) 原始資料與 CSV 下載暫存區
 
 ```
 
