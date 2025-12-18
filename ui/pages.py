@@ -61,7 +61,7 @@ def render_fetch_da_price_page() -> None:
             format_func=lambda c: SUPPORTED_COUNTRIES[c], 
         )
 
-        submitted = st.form_submit_button("向 ENTSO-E 下載原始 XML")
+        submitted = st.form_submit_button("向 ENTSO-E 發送請求")
 
     if not submitted:
         return
@@ -78,7 +78,7 @@ def render_fetch_da_price_page() -> None:
 
     try:
         # 2-3 🔹 呼叫 API 取得原始 XML 資料
-        with st.spinner("正在從 ENTSO-E 取得日前價格資料（原始 XML）…"):
+        with st.spinner("正在向 ENTSO-E 取得日前市場價格數據…"):
             file_name_xml, xml_bytes = fetch_da_price_xml_bytes(
                 start_date=start_date,
                 end_date=end_date,
@@ -117,10 +117,14 @@ def render_fetch_da_price_page() -> None:
         # 2-5 🔹 渲染下載按鈕 (依設定檔動態排版)
         # 計算需要多少欄位來排版
         active_download_options = [k for k, v in DA_DOWNLOAD_OPTIONS.items() if v]
-        col_count = len(active_download_options)
+        num_buttons = len(active_download_options)
         
-        if col_count > 0:
-            cols = st.columns(col_count)
+        if num_buttons > 0:
+            # 🔧 排版優化 (修正版)：
+            # 改為 [2] * num_buttons -> 給每個按鈕 2 份寬度 (增加空間)
+            # + [5]                 -> 右側維持 5 份空白緩衝
+            # 這樣比例變成 2:2:5，按鈕空間變大，文字不會跑版，且依然靠左
+            cols = st.columns([2] * num_buttons + [5])
             col_idx = 0
 
             # 根據 settings 決定是否顯示按鈕
@@ -129,10 +133,11 @@ def render_fetch_da_price_page() -> None:
             if DA_DOWNLOAD_OPTIONS["xml_original"]:
                 with cols[col_idx]:
                     st.download_button(
-                        label="下載原始 XML 檔案",
+                        label="下載 XML 檔案 (原始)",  # 文字精簡
                         data=xml_bytes,
                         file_name=file_name_xml,
                         mime="application/xml",
+                        use_container_width=True, # 讓按鈕撐滿欄位
                     )
                 col_idx += 1
 
@@ -141,10 +146,11 @@ def render_fetch_da_price_page() -> None:
                 with cols[col_idx]:
                     csv_name_raw = file_name_xml.replace(".xml", "_raw.csv")
                     st.download_button(
-                        label="下載 CSV 檔案 (原始)",
+                        label="下載 CSV 檔案 (原始)",  # 文字精簡
                         data=csv_bytes_raw,
                         file_name=csv_name_raw,
                         mime="text/csv",
+                        use_container_width=True, # 讓按鈕撐滿欄位
                     )
                 col_idx += 1
 
@@ -153,17 +159,18 @@ def render_fetch_da_price_page() -> None:
                 with cols[col_idx]:
                     csv_name_hourly = file_name_xml.replace(".xml", "_hourly.csv")
                     st.download_button(
-                        label="下載 CSV 檔案 (每小時)",
+                        label="下載 CSV 檔案 (每小時)",  # 文字精簡
                         data=csv_bytes_hourly,
                         file_name=csv_name_hourly,
                         mime="text/csv",
+                        use_container_width=True, # 讓按鈕撐滿欄位
                     )
                 col_idx += 1
 
 
             st.caption(
-                "＊「原始」CSV 以 MTU (1..N) 表示時間，已依 ENTSO-E 規則補回省略的相同價格區間；"
-                "「每小時」CSV 則是依每天的解析度 (60/30/15 分鐘) 聚合為每小時平均價格。"
+                "＊ 「原始 CSV」為 ENTSO-E 呈現的數據；"
+                "「每小時 CSV」則是依每天的解析度 (60/30/15 分鐘) 聚合為每小時平均價格。"
             )
         else:
             st.warning("所有下載功能皆已關閉。")

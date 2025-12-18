@@ -127,11 +127,13 @@ def show_main_app():
 # 4 🔹 定義 main()
 # =========================== #
 def main():
-    # 如果尚未登入 → 顯示登入頁
-    if "user" not in st.session_state:
-        show_login_page()
-    else:
-        show_main_app()
+    show_main_app()
+
+    # # 如果尚未登入 → 顯示登入頁
+    # if "user" not in st.session_state:
+    #     show_login_page()
+    # else:
+    #     show_main_app()
 
 
 if __name__ == "__main__":

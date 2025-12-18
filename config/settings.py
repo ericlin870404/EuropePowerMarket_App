@@ -34,7 +34,7 @@ DA_SKIP_UNSUPPORTED_MTU_DAYS = True                # 是否跳過不支援的解
 DA_MARKET_TIMEZONE = "Europe/Brussels"             # ENTSO-E 市場時區
 # 下載功能開關 (DA_DOWNLOAD_OPTIONS)
 DA_DOWNLOAD_OPTIONS: Dict[str, bool] = {
-    "xml_original": True,     # 開關：原始 XML
+    "xml_original": False,     # 開關：原始 XML
     "csv_raw_mtu": True,      # 開關：原始 MTU CSV
     "csv_hourly": True,       # 開關：每小時 CSV
 }
