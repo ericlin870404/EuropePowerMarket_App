@@ -304,39 +304,41 @@ def calculate_daily_stats(
     hourly_csv_bytes: bytes
 ) -> Tuple[bytes, dict]:
     """
-    計算每日統計數據（平均電價、價差）。
+    計算每日統計數據（平均電價、價差、標準差）。
     """
-    # 5-1 🔹 讀取 Hourly CSV
     buf = io.StringIO(hourly_csv_bytes.decode("utf-8"))
     df = pd.read_csv(buf)
     df["Date"] = pd.to_datetime(df["Date"])
     
-    # 5-2 🔹 執行聚合運算 (GroupBy Date)
+    # 5-1 🔹 執行聚合運算 (新增 'std' 標準差計算)
     daily_stats = df.groupby("Date")["Day-ahead Price (EUR/MWh)"].agg(
-        ["mean", "max", "min"]
+        ["mean", "max", "min", "std"]
     ).reset_index()
     
     daily_stats["Spread"] = daily_stats["max"] - daily_stats["min"]
     
+    # 重新命名欄位
     daily_stats.rename(columns={
         "mean": "Daily Average Price",
         "max": "Daily Max Price",
         "min": "Daily Min Price",
+        "std": "Daily Volatility (SD)", # 新增波動率
         "Spread": "Daily Price Spread"
     }, inplace=True)
     
     daily_stats["Date_Str"] = daily_stats["Date"].dt.strftime("%Y/%m/%d")
     
-    # 5-3 🔹 計算 UI 顯示用的摘要數據 (Summary Stats)
+    # 5-2 🔹 計算 UI 顯示用的摘要數據 (Summary Stats)
     if daily_stats.empty:
         raise ValueError("計算後的統計資料為空。")
 
     start_date = daily_stats["Date_Str"].iloc[0]
     end_date = daily_stats["Date_Str"].iloc[-1]
     
-    # 新增：計算區間內的總平均電價
+    # 計算各指標的區間平均
     avg_price = daily_stats["Daily Average Price"].mean()
     avg_spread = daily_stats["Daily Price Spread"].mean()
+    avg_volatility = daily_stats["Daily Volatility (SD)"].mean() # 新增
     
     max_spread_idx = daily_stats["Daily Price Spread"].idxmax()
     max_spread_row = daily_stats.loc[max_spread_idx]
@@ -346,14 +348,19 @@ def calculate_daily_stats(
         "end_date": end_date,
         "avg_price": round(avg_price, 2),   
         "avg_spread": round(avg_spread, 2),
+        "avg_volatility": round(avg_volatility, 2), # 新增
         "max_spread": round(max_spread_row["Daily Price Spread"], 2),
         "max_spread_date": max_spread_row["Date_Str"]
     }
     
-    # 5-4 🔹 輸出 CSV Bytes
+    # 5-3 🔹 輸出 CSV Bytes
     out_df = daily_stats[[
-        "Date_Str", "Daily Average Price", "Daily Price Spread", 
-        "Daily Max Price", "Daily Min Price"
+        "Date_Str", 
+        "Daily Average Price", 
+        "Daily Price Spread", 
+        "Daily Volatility (SD)", # 匯出檔也加入此欄
+        "Daily Max Price", 
+        "Daily Min Price"
     ]].rename(columns={"Date_Str": "Date"})
     
     out_buf = io.StringIO()
