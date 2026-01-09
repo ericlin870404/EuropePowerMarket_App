@@ -11,7 +11,8 @@
 4. 定義使用者帳號 (登入權限)
 """
 
-from typing import Dict
+from typing import Dict, List
+
 
 # =========================== #
 # 1 🔹 定義應用程式基礎資訊
@@ -49,31 +50,47 @@ SUPPORTED_COUNTRIES: Dict[str, str] = {
     "NL": "荷蘭",
     "ES": "西班牙",
     "PT": "葡萄牙",
-    "IT-North": "義大利（北部）",
-    "IT-South": "義大利（南部）",
     "BE": "比利時",
     "GB": "英國",
     "CZ": "捷克",
     "CH": "瑞士",
+    # 義大利區域 (依地理位置由北至南排序)
+    "IT-North": "義大利（北部）",
+    "IT-Centre-North": "義大利（中北部）",
+    "IT-Centre-South": "義大利（中南部）",
+    "IT-South": "義大利（南部）",
+    "IT-Calabria": "義大利（卡拉布里亞）",
+    "IT-Sicily": "義大利（西西里島）",
+    "IT-Sardinia": "義大利（薩丁尼亞島）",
 }
 
 # 3-2 🔹 ENTSO-E EIC 代碼對照表
 ENTSOE_EIC_BY_COUNTRY: Dict[str, str] = {
     "ES": "10YES-REE------0",
     "PT": "10YPT-REN------W",
-    "IT-North": "10Y1001A1001A73I",
-    "IT-South": "10Y1001A1001A788",
     "NL": "10YNL----------L",
     "FR": "10YFR-RTE------C",
     "BE": "10YBE----------2",
     "GB": "10YGB----------A",
     "CZ": "10YCZ-CEPS-----N",
     "CH": "10YCH-SWISSGRIDZ",
+    # 義大利區域 EIC Codes
+    "IT-North": "10Y1001A1001A73I",
+    "IT-Centre-North": "10Y1001A1001A70O",
+    "IT-Centre-South": "10Y1001A1001A71M",
+    "IT-South": "10Y1001A1001A788",
+    "IT-Calabria": "10Y1001C--00096J",
+    "IT-Sicily": "10Y1001A1001A75E",
+    "IT-Sardinia": "10Y1001A1001A74G",
 }
 
 # 3-3 🔹 DA 市場支援國家清單
-DA_SUPPORTED_COUNTRIES = ["FR", "NL", "ES", "PT", "IT-North", "IT-South", "BE", "CZ", "CH"]  
-
+# 注意：確保此處的 Key 與上述字典 Key 完全一致
+DA_SUPPORTED_COUNTRIES: List[str] = [
+    "FR", "NL", "ES", "PT", "BE", "CZ", "CH",
+    "IT-North", "IT-Centre-North", "IT-Centre-South", 
+    "IT-South", "IT-Calabria", "IT-Sicily", "IT-Sardinia"
+]
 # =========================== #
 # 4 🔹 定義使用者帳號
 # =========================== #
