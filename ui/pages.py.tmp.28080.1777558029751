@@ -343,8 +343,8 @@ def render_dashboard_page() -> None:
                 ["📈 日均電價", "📉 每日電價差", "📊 電價差分布"]
             )
 
-            _AXIS_FONT  = dict(size=16, color="#374151")
-            _TICK_FONT  = dict(size=17, color="#374151")
+            _AXIS_FONT  = dict(size=15, color="#374151")
+            _TICK_FONT  = dict(size=13, color="#374151")
             _CHART_H    = 420
             _MARGIN     = dict(l=10, r=20, t=20, b=20)
 
@@ -414,7 +414,7 @@ def render_dashboard_page() -> None:
                     marker_color="#2563eb",
                     text=bin_counts.values,
                     textposition="outside",
-                    textfont=dict(size=18, color="#374151"),
+                    textfont=dict(size=14, color="#374151"),
                     hovertemplate="%{x} €/MWh<br><b>%{y} 天</b><extra></extra>",
                 ))
                 fig3.update_layout(
