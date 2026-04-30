@@ -1,6 +1,6 @@
 *.xlsx
-# Generated CSV data
 *.csv
-
-# Python bytecode
 *.pyc
+
+# Streamlit secrets (含 Supabase 憑證，絕對不能 commit)
+.streamlit/secrets.toml

@@ -3,39 +3,49 @@
 """
 📌 整體流程：
 1. 引入必要套件、設定與服務層函式
-2. 定義 render_fetch_da_price_page()：日前市場價格頁面
-   2-1. 建立搜尋表單 (日期、國家)
-   2-2. 執行輸入驗證與 API 呼叫 (並存入 Session State)
-   2-3. 執行資料處理 (從 Session State 讀取資料)
-   2-4. 渲染按鈕區域 (包含 XML/Raw/Hourly 三種下載按鈕 + 進階分析)
-   2-5. 渲染進階分析區塊 (呼叫 calculate_daily_stats，四欄排版)
-3. 定義其他功能頁面 (Dashboard、aFRR、收益試算)
+2. 定義 render_dashboard_page()：Dashboard 總覽頁面
+   2-1. 時間區間選擇器 (近一個月/三個月/半年/一年/自定義)
+   2-2. 從 Supabase 載入日均電價資料
+   2-3. 依國家順序渲染折線圖與統計指標
+3. 定義 render_fetch_da_price_page()：日前市場價格頁面
+   3-1. 建立搜尋表單 (日期、國家)
+   3-2. 執行輸入驗證與 API 呼叫 (並存入 Session State)
+   3-3. 執行資料處理 (從 Session State 讀取資料)
+   3-4. 渲染按鈕區域 (包含 XML/Raw/Hourly 三種下載按鈕 + 進階分析)
+   3-5. 渲染進階分析區塊 (呼叫 calculate_daily_stats，四欄排版)
+4. 定義其他功能頁面 (aFRR、收益試算)
 """
 
 # =========================== #
 # 1 🔹 引入必要套件與設定
 # =========================== #
 import streamlit as st
-from datetime import date
+from datetime import date, timedelta
+
+import plotly.graph_objects as go
 
 # 引入設定檔
 from config.settings import (
     SUPPORTED_COUNTRIES,       # Dict: 代碼 -> 中文名稱
-    DEFAULT_ENTSOE_TOKEN, 
-    DA_SUPPORTED_COUNTRIES,    # List: ["FR", "NL", ...] 
-    DA_DOWNLOAD_OPTIONS, 
+    DEFAULT_ENTSOE_TOKEN,
+    DA_SUPPORTED_COUNTRIES,    # List: ["FR", "NL", ...]
+    DA_DOWNLOAD_OPTIONS,
 )
 
 from services.data_fetcher import fetch_da_price_xml_bytes
 from services.data_processor import (
     parse_da_xml_to_raw_csv_bytes,
-    convert_raw_mtu_csv_to_hourly_csv_bytes,  
+    convert_raw_mtu_csv_to_hourly_csv_bytes,
     calculate_daily_stats,
 )
+from services.supabase_reader import fetch_daily_avg_prices
+
+# Dashboard 顯示的國家順序
+_DASHBOARD_ZONES = ["FR", "CH", "ES", "PT", "NL", "IT-North", "IT-South"]
 
 
 # =========================== #
-# 2 🔹 定義 render_fetch_da_price_page()
+# 3 🔹 定義 render_fetch_da_price_page()
 # =========================== #
 def render_fetch_da_price_page() -> None:
     st.header("資料獲取｜電能現貨市場 - 日前市場價格")
@@ -247,11 +257,134 @@ def render_fetch_da_price_page() -> None:
 
 
 # =========================== #
-# 3 🔹 定義其他功能頁面
+# 2 🔹 定義 render_dashboard_page()
 # =========================== #
-def render_dashboard_page():
-    st.header("Dashboard")
-    st.info("此功能開發中。")
+
+def render_dashboard_page() -> None:
+    """
+    📌 整體流程：
+    1. 渲染時間區間選擇器
+    2. 從 Supabase 載入日均電價資料
+    3. 依國家順序渲染折線圖與統計指標
+    """
+    st.header("Dashboard｜日前電價市場總覽")
+
+    # 2-1 🔹 時間區間選擇器
+    RANGE_LABELS = ["近一個月", "近三個月", "近半年", "近一年", "自定義"]
+    RANGE_DAYS   = [30, 90, 180, 365, None]
+
+    range_choice = st.radio(
+        "統計區間",
+        options=RANGE_LABELS,
+        horizontal=True,
+        index=0,
+        label_visibility="collapsed",
+    )
+
+    today    = date.today()
+    end_date = today - timedelta(days=1)  # 預設到昨天（Supabase 最新資料）
+
+    if range_choice == "自定義":
+        c1, c2, _ = st.columns([2, 2, 6])
+        with c1:
+            start_date = st.date_input(
+                "開始日期",
+                value=end_date - timedelta(days=29),
+                max_value=end_date,
+            )
+        with c2:
+            end_date = st.date_input(
+                "結束日期",
+                value=end_date,
+                max_value=today,
+            )
+    else:
+        days       = RANGE_DAYS[RANGE_LABELS.index(range_choice)]
+        start_date = end_date - timedelta(days=days - 1)
+
+    st.caption(f"資料區間：{start_date.strftime('%Y/%m/%d')} ～ {end_date.strftime('%Y/%m/%d')}")
+    st.divider()
+
+    # 2-2 🔹 從 Supabase 載入資料
+    try:
+        with st.spinner("從 Supabase 載入電價資料…"):
+            df_all = fetch_daily_avg_prices(
+                zones=tuple(_DASHBOARD_ZONES),
+                start_date=start_date.isoformat(),
+                end_date=end_date.isoformat(),
+            )
+    except Exception as e:
+        st.error(f"無法連線至 Supabase：{e}")
+        st.info("請確認 .streamlit/secrets.toml 已正確設定 supabase.url 與 supabase.service_key。")
+        return
+
+    if df_all.empty:
+        st.warning("指定區間內無任何資料，請確認 Supabase 已有資料寫入。")
+        return
+
+    # 2-3 🔹 依國家順序渲染折線圖與統計指標
+    for zone_key in _DASHBOARD_ZONES:
+        zone_name = SUPPORTED_COUNTRIES.get(zone_key, zone_key)
+        zone_df   = df_all[df_all["zone_key"] == zone_key].sort_values("delivery_date").copy()
+
+        st.markdown(f"#### {zone_name}　`{zone_key}`")
+
+        if zone_df.empty:
+            st.warning(f"此區間無 {zone_name} 的資料")
+            st.divider()
+            continue
+
+        chart_col, stats_col = st.columns([7, 3])
+
+        # 2-3-1 🔹 折線圖
+        with chart_col:
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(
+                x=zone_df["delivery_date"],
+                y=zone_df["avg_price"],
+                mode="lines",
+                line=dict(color="#2563eb", width=1.5),
+                hovertemplate="%{x|%Y/%m/%d}<br><b>%{y:.2f} €/MWh</b><extra></extra>",
+            ))
+            fig.update_layout(
+                template="plotly_white",
+                height=220,
+                margin=dict(l=0, r=10, t=10, b=10),
+                yaxis_title="€/MWh",
+                showlegend=False,
+                xaxis=dict(showgrid=False),
+                yaxis=dict(gridcolor="#f0f0f0"),
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+        # 2-3-2 🔹 統計指標 (2 欄 × 3 列)
+        with stats_col:
+            avg_price      = zone_df["avg_price"].mean()
+            avg_spread     = zone_df["spread"].mean()
+            avg_volatility = zone_df["volatility"].mean()
+            period_max     = zone_df["max_price"].max()
+            period_min     = zone_df["min_price"].min()
+            max_row        = zone_df.loc[zone_df["spread"].idxmax()]
+
+            mc1, mc2 = st.columns(2)
+            mc1.metric("平均電價",       f"{avg_price:.2f} €")
+            mc2.metric("區間最高價",     f"{period_max:.2f} €")
+            mc1.metric("平均日內價差",   f"{avg_spread:.2f} €")
+            mc2.metric("區間最低價",     f"{period_min:.2f} €")
+            mc1.metric("平均波動率(SD)", f"{avg_volatility:.2f} €")
+            mc2.metric(
+                "最大單日價差",
+                f"{max_row['spread']:.2f} €",
+                delta=max_row["delivery_date"].strftime("%Y/%m/%d"),
+                delta_color="off",
+            )
+
+        st.divider()
+
+
+# =========================== #
+# 3 🔹 定義 render_fetch_da_price_page()
+# =========================== #
 
 
 def render_fetch_afrr_capacity_page():
