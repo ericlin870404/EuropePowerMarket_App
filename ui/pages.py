@@ -22,6 +22,7 @@
 import streamlit as st
 from datetime import date, timedelta
 
+import pandas as pd
 import plotly.graph_objects as go
 
 # 引入設定檔
@@ -336,7 +337,7 @@ def render_dashboard_page() -> None:
 
         chart_col, stats_col = st.columns([7, 3])
 
-        # 2-3-1 🔹 折線圖
+        # 2-3-1 🔹 日均電價折線圖
         with chart_col:
             fig = go.Figure()
             fig.add_trace(go.Scatter(
@@ -350,7 +351,7 @@ def render_dashboard_page() -> None:
                 template="plotly_white",
                 height=220,
                 margin=dict(l=0, r=10, t=10, b=10),
-                yaxis_title="€/MWh",
+                yaxis_title="日均電價（EUR/MWh）",
                 showlegend=False,
                 xaxis=dict(showgrid=False),
                 yaxis=dict(gridcolor="#f0f0f0"),
@@ -378,6 +379,62 @@ def render_dashboard_page() -> None:
                 delta=max_row["delivery_date"].strftime("%Y/%m/%d"),
                 delta_color="off",
             )
+
+        # 2-3-3 🔹 每日電價差折線圖 + 電價差分布柱狀圖
+        spread_col, hist_col = st.columns([6, 6])
+
+        with spread_col:
+            fig2 = go.Figure()
+            fig2.add_trace(go.Scatter(
+                x=zone_df["delivery_date"],
+                y=zone_df["spread"],
+                mode="lines",
+                line=dict(color="#059669", width=1.5),
+                hovertemplate="%{x|%Y/%m/%d}<br><b>%{y:.2f} €/MWh</b><extra></extra>",
+            ))
+            fig2.update_layout(
+                template="plotly_white",
+                height=220,
+                margin=dict(l=0, r=10, t=10, b=10),
+                yaxis_title="電價差（EUR/MWh）",
+                showlegend=False,
+                xaxis=dict(showgrid=False),
+                yaxis=dict(gridcolor="#f0f0f0"),
+            )
+            st.plotly_chart(fig2, use_container_width=True)
+
+        with hist_col:
+            # 2-3-4 🔹 電價差分布柱狀圖
+            _bins   = [float("-inf"), 20, 30, 40, 50, 60, 70, 80, 90, 100, float("inf")]
+            _labels = ["<20", "20-30", "30-40", "40-50", "50-60",
+                       "60-70", "70-80", "80-90", "90-100", ">100"]
+
+            bin_counts = (
+                pd.cut(zone_df["spread"], bins=_bins, labels=_labels, right=False)
+                .value_counts()
+                .reindex(_labels, fill_value=0)
+            )
+
+            fig3 = go.Figure()
+            fig3.add_trace(go.Bar(
+                x=_labels,
+                y=bin_counts.values,
+                marker_color="#2563eb",
+                text=bin_counts.values,
+                textposition="outside",
+                hovertemplate="%{x} €/MWh<br><b>%{y} 天</b><extra></extra>",
+            ))
+            fig3.update_layout(
+                template="plotly_white",
+                height=220,
+                margin=dict(l=0, r=10, t=30, b=10),
+                xaxis_title="電價差區間（EUR/MWh）",
+                yaxis_title="天數",
+                showlegend=False,
+                xaxis=dict(showgrid=False),
+                yaxis=dict(gridcolor="#f0f0f0"),
+            )
+            st.plotly_chart(fig3, use_container_width=True)
 
         st.divider()
 
