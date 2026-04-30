@@ -38,7 +38,6 @@ jobs:
           cache: "pip"
 
       - name: Install dependencies
-        working-directory: 歐洲電力市場分析App
         run: pip install -r requirements.txt supabase
 
       - name: Compute date range (scheduled run)
@@ -60,7 +59,6 @@ jobs:
           echo "ZONES=$ZONES" >> $GITHUB_ENV
 
       - name: Upload DA prices to Supabase
-        working-directory: 歐洲電力市場分析App
         env:
           SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
