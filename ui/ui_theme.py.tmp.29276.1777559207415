@@ -99,10 +99,9 @@ DASHBOARD_CSS = """
     margin-bottom: 12px;
     margin-top: 4px;
 }
-.zone-flag img {
-    width: 32px;
-    height: 32px;
-    vertical-align: middle;
+.zone-flag {
+    font-size: 32px;
+    line-height: 1;
 }
 .zone-name {
     font-size: 22px;
@@ -186,32 +185,11 @@ def kpi_card(label: str, value: str, delta: str = "", highlight: bool = False) -
     """
 
 
-# 每個 zone_key 對應的 ISO 2-letter country code（用於組成 twemoji URL）
-_ZONE_COUNTRY_CODE: dict = {
-    "FR": "FR", "NL": "NL", "ES": "ES", "PT": "PT",
-    "BE": "BE", "GB": "GB", "CZ": "CZ", "CH": "CH",
-    "IT-North": "IT", "IT-Centre-North": "IT", "IT-Centre-South": "IT",
-    "IT-South": "IT", "IT-Calabria": "IT", "IT-Sicily": "IT", "IT-Sardinia": "IT",
-}
-
-_TWEMOJI_BASE = "https://cdn.jsdelivr.net/gh/twitter/twemoji@latest/assets/svg"
-
-
-def _flag_img_url(country_code: str) -> str:
-    """將 ISO 2-letter code 轉成 twemoji 國旗 SVG URL。"""
-    codepoints = "-".join(
-        format(0x1F1E6 + (ord(c) - ord("A")), "x") for c in country_code.upper()
-    )
-    return f"{_TWEMOJI_BASE}/{codepoints}.svg"
-
-
 def zone_header_html(zone_name: str, zone_key: str) -> str:
-    """產生國家區塊標題的 HTML 字串（twemoji 國旗圖片 + 國家名稱）。"""
-    cc  = _ZONE_COUNTRY_CODE.get(zone_key, "")
-    img = f'<img src="{_flag_img_url(cc)}" style="width:32px;height:32px;vertical-align:middle;">' if cc else ""
+    """產生國家區塊標題的 HTML 字串。"""
     return f"""
     <div class="zone-header">
-        {img}
         <span class="zone-name">{zone_name}</span>
+        <span class="zone-badge">{zone_key}</span>
     </div>
     """

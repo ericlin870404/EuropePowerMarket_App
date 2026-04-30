@@ -357,12 +357,13 @@ def render_dashboard_page() -> None:
         zone_name = SUPPORTED_COUNTRIES.get(zone_key, zone_key)
         zone_df   = df_all[df_all["zone_key"] == zone_key].sort_values("delivery_date").copy()
 
-        # 2-4-1 🔹 國家標題
+        # 2-4-1 🔹 國家區塊外框開始
+        st.markdown('<div class="zone-card">', unsafe_allow_html=True)
         st.markdown(zone_header_html(zone_name, zone_key), unsafe_allow_html=True)
 
         if zone_df.empty:
             st.warning(f"此區間無 {zone_name} 的資料")
-            st.divider()
+            st.markdown('</div>', unsafe_allow_html=True)
             continue
 
         chart_col, stats_col = st.columns([7, 3])
@@ -465,7 +466,7 @@ def render_dashboard_page() -> None:
                                  f"{max_row['spread']:.2f} €/MWh",
                                  delta=max_row["delivery_date"].strftime("%Y/%m/%d")), unsafe_allow_html=True)
 
-        st.divider()
+        st.markdown('</div>', unsafe_allow_html=True)
 
 
 # =========================== #

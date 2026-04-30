@@ -465,7 +465,7 @@ def render_dashboard_page() -> None:
                                  f"{max_row['spread']:.2f} €/MWh",
                                  delta=max_row["delivery_date"].strftime("%Y/%m/%d")), unsafe_allow_html=True)
 
-        st.divider()
+        st.markdown('</div>', unsafe_allow_html=True)
 
 
 # =========================== #
