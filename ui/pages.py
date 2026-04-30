@@ -7,9 +7,9 @@
    2-1. 建立搜尋表單 (日期、國家)
    2-2. 執行輸入驗證與 API 呼叫 (並存入 Session State)
    2-3. 執行資料處理 (從 Session State 讀取資料)
-   2-4. 渲染按鈕區域 (修正：包含 XML/Raw/Hourly 三種下載按鈕 + 進階分析)
+   2-4. 渲染按鈕區域 (包含 XML/Raw/Hourly 三種下載按鈕 + 進階分析)
    2-5. 渲染進階分析區塊 (呼叫 calculate_daily_stats，四欄排版)
-3. 定義其他功能頁面 (aFRR、資料處理、繪圖)
+3. 定義其他功能頁面 (Dashboard、aFRR、收益試算)
 """
 
 # =========================== #
@@ -249,16 +249,16 @@ def render_fetch_da_price_page() -> None:
 # =========================== #
 # 3 🔹 定義其他功能頁面
 # =========================== #
+def render_dashboard_page():
+    st.header("Dashboard")
+    st.info("此功能開發中。")
+
+
 def render_fetch_afrr_capacity_page():
-    st.header("資料獲取｜平衡服務市場 - aFRR 容量價格")
+    st.header("資料下載｜平衡服務市場 - aFRR 容量價格")
     st.info("此功能尚未實作。")
 
 
-def render_data_processing_page():
-    st.header("資料處理")
-    st.info("此功能將處理 XML → CSV、解析度、時區等問題。")
-
-
-def render_plot_page():
-    st.header("繪圖區")
+def render_revenue_calc_page():
+    st.header("收益試算")
     st.info("此功能尚未實作。")

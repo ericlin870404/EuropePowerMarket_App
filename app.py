@@ -4,8 +4,8 @@
 1. 引入必要套件與設定
 2. 定義 show_login_page()：處理使用者登入與 Session 驗證
 3. 定義 show_main_app()：建構主畫面架構
-   3-1. 側邊欄：第一層主選單 (資料獲取/處理/繪圖)
-   3-2. 側邊欄：第二層子選單 (動態顯示)
+   3-1. 側邊欄：第一層主選單 (Dashboard / 資料下載 / 收益試算)
+   3-2. 側邊欄：第二層子選單 (動態顯示，僅資料下載有子項目)
    3-3. 路由判斷：依據選單呼叫對應頁面函式
 4. 定義 main()：程式入口與登入狀態檢查
 """
@@ -18,10 +18,10 @@ from streamlit_option_menu import option_menu
 
 from config.settings import APP_TITLE, USERS
 from ui.pages import (
+    render_dashboard_page,
     render_fetch_da_price_page,
     render_fetch_afrr_capacity_page,
-    render_data_processing_page,
-    render_plot_page,
+    render_revenue_calc_page,
 )
 from ui.ui_theme import MINIMAL_MAIN_MENU_STYLES, MINIMAL_SUB_MENU_STYLES
 
@@ -63,19 +63,19 @@ def show_main_app():
     with st.sidebar:
         st.markdown("### 歐洲電力市場工具")
 
-        # 3-1 🔹 側邊欄：第一層主選單 (資料獲取/處理/繪圖)
+        # 3-1 🔹 側邊欄：第一層主選單 (Dashboard / 資料下載 / 收益試算)
         main_choice = option_menu(
             menu_title=None,
-            options=["資料獲取", "資料處理", "繪圖區"],
-            icons=["cloud-download", "arrow-repeat", "bar-chart"],  # 可之後再微調
+            options=["Dashboard", "資料下載", "收益試算"],
+            icons=["speedometer2", "cloud-download", "calculator"],
             default_index=0,
             styles=MINIMAL_MAIN_MENU_STYLES,
         )
 
-        # 3-2 🔹 側邊欄：第二層子選單 (動態顯示)
+        # 3-2 🔹 側邊欄：第二層子選單 (僅資料下載有子項目)
         sub_choice = None
 
-        if main_choice == "資料獲取":
+        if main_choice == "資料下載":
             sub_choice = option_menu(
                 menu_title=None,
                 options=[
@@ -87,40 +87,18 @@ def show_main_app():
                 styles=MINIMAL_SUB_MENU_STYLES,
             )
 
-        elif main_choice == "資料處理":
-            sub_choice = option_menu(
-                menu_title=None,
-                options=[
-                    "（預留）時間序列處理",
-                ],
-                icons=["wrench"],
-                default_index=0,
-                styles=MINIMAL_SUB_MENU_STYLES,
-            )
-
-        elif main_choice == "繪圖區":
-            sub_choice = option_menu(
-                menu_title=None,
-                options=[
-                    "（預留）電價圖表",
-                ],
-                icons=["bar-chart"],
-                default_index=0,
-                styles=MINIMAL_SUB_MENU_STYLES,
-            )
-
     # 3-3 🔹 路由判斷：依據選單呼叫對應頁面函式
-    if main_choice == "資料獲取":
+    if main_choice == "Dashboard":
+        render_dashboard_page()
+
+    elif main_choice == "資料下載":
         if sub_choice == "電能現貨市場 - 日前市場價格":
             render_fetch_da_price_page()
         elif sub_choice == "平衡服務市場 - aFRR容量價格":
             render_fetch_afrr_capacity_page()
 
-    elif main_choice == "資料處理":
-        render_data_processing_page()
-
-    elif main_choice == "繪圖區":
-        render_plot_page()
+    elif main_choice == "收益試算":
+        render_revenue_calc_page()
 
 
 # =========================== #
