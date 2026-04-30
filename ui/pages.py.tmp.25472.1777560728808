@@ -335,9 +335,9 @@ def render_dashboard_page() -> None:
         return
 
     # 2-4 🔹 依國家順序渲染折線圖與統計指標
-    _AXIS_FONT = dict(size=16, color="#64748B")
+    _AXIS_FONT = dict(size=26, color="#64748B")
     _TICK_FONT = dict(size=17, color="#64748B")
-    _CHART_H   = 450
+    _CHART_H   = 380
     _MARGIN    = dict(l=10, r=20, t=16, b=10)
     _LAYOUT_BASE = dict(
         template="plotly_white",
@@ -397,8 +397,10 @@ def render_dashboard_page() -> None:
                     line=dict(color="#059669", width=2),
                     hovertemplate="%{x|%Y/%m/%d}<br><b>%{y:.2f} €/MWh</b><extra></extra>",
                 ))
-                fig2.update_layout(**_LAYOUT_BASE)
-                fig2.update_yaxes(title_text="電價差（EUR/MWh）")
+                fig2.update_layout(
+                    **_LAYOUT_BASE,
+                    yaxis_title="電價差（EUR/MWh）",
+                )
                 st.plotly_chart(fig2, use_container_width=True)
 
             with tab_hist:

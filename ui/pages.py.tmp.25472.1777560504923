@@ -337,7 +337,7 @@ def render_dashboard_page() -> None:
     # 2-4 🔹 依國家順序渲染折線圖與統計指標
     _AXIS_FONT = dict(size=16, color="#64748B")
     _TICK_FONT = dict(size=17, color="#64748B")
-    _CHART_H   = 450
+    _CHART_H   = 380
     _MARGIN    = dict(l=10, r=20, t=16, b=10)
     _LAYOUT_BASE = dict(
         template="plotly_white",
@@ -382,8 +382,10 @@ def render_dashboard_page() -> None:
                     line=dict(color="#2563EB", width=2),
                     hovertemplate="%{x|%Y/%m/%d}<br><b>%{y:.2f} €/MWh</b><extra></extra>",
                 ))
-                fig.update_layout(**_LAYOUT_BASE)
-                fig.update_yaxes(title_text="日均電價（EUR/MWh）")
+                fig.update_layout(
+                    **_LAYOUT_BASE,
+                    yaxis_title="日均電價（EUR/MWh）",
+                )
                 st.plotly_chart(fig, use_container_width=True)
 
             with tab_spread:
@@ -397,8 +399,10 @@ def render_dashboard_page() -> None:
                     line=dict(color="#059669", width=2),
                     hovertemplate="%{x|%Y/%m/%d}<br><b>%{y:.2f} €/MWh</b><extra></extra>",
                 ))
-                fig2.update_layout(**_LAYOUT_BASE)
-                fig2.update_yaxes(title_text="電價差（EUR/MWh）")
+                fig2.update_layout(
+                    **_LAYOUT_BASE,
+                    yaxis_title="電價差（EUR/MWh）",
+                )
                 st.plotly_chart(fig2, use_container_width=True)
 
             with tab_hist:
@@ -429,15 +433,14 @@ def render_dashboard_page() -> None:
                 fig3.update_layout(**{
                     **_LAYOUT_BASE,
                     "margin": dict(l=10, r=20, t=30, b=10),
-                    "xaxis": dict(showgrid=False, tickfont=_TICK_FONT, linecolor="#E2E8F0", title_font=_AXIS_FONT, title_text="電價差區間（EUR/MWh）"),
+                    "xaxis_title": "電價差區間（EUR/MWh）",
+                    "yaxis_title": "天數",
                     "yaxis": dict(
                         gridcolor="#EEF2F7",
                         tickfont=_TICK_FONT,
                         linecolor="#E2E8F0",
                         zeroline=False,
                         range=[0, _y_max],
-                        title_font=_AXIS_FONT,
-                        title_text="天數",
                     ),
                 })
                 st.plotly_chart(fig3, use_container_width=True)

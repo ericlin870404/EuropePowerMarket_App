@@ -71,7 +71,7 @@ DASHBOARD_CSS = """
 
 /* ── Tab 文字大小 ── */
 .stTabs [data-baseweb="tab"] {
-    font-size: 16px;
+    font-size: 15px;
     font-weight: 600;
 }
 .kpi-label {
