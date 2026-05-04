@@ -20,6 +20,8 @@
 # =========================== #
 # 1 🔹 引入必要套件與設定
 # =========================== #
+import io
+
 import streamlit as st
 from datetime import date, timedelta
 
@@ -576,6 +578,319 @@ def render_fetch_balancing_capacity_page() -> None:
         )
 
 
-def render_revenue_calc_page():
+# =========================== #
+# 5 🔹 定義 render_revenue_calc_page()
+# =========================== #
+def render_revenue_calc_page() -> None:
+    """
+    📌 整體流程：
+    1. 初始化 Session State
+    2. 渲染 Step 1：基本資訊 → 試算 Power Fee 收益
+    3. 渲染 Step 2：日前電能市場參數 → 試算離尖峰套利收益
+    4. 渲染 Step 3：平衡市場參數 → 試算 aFRR 容量市場收益
+    5. 渲染試算結果總覽
+    """
     st.header("收益試算")
-    st.info("此功能尚未實作。")
+
+    # 5-1 🔹 初始化 Session State
+    _defaults = {
+        "rev_s1_done": False,
+        "rev_s2_done": False,
+        "rev_s3_done": False,
+        "rev_total_cap": 0.0,
+        "rev_total_energy": 0.0,
+        "rev_contracted": 0.0,
+        "rev_power_fee": 0.0,
+        "rev_efficiency": 0.9,
+        "rev_s2_avg_max": 0.0,
+        "rev_s2_avg_min": 0.0,
+        "rev_s2_days": 0,
+        "rev_da_revenue": 0.0,
+        "rev_s3_avg_up": 0.0,
+        "rev_s3_avg_down": 0.0,
+        "rev_s3_days": 0,
+        "rev_bal_revenue": 0.0,
+    }
+    for k, v in _defaults.items():
+        if k not in st.session_state:
+            st.session_state[k] = v
+
+    # ============================================================
+    # 5-2 🔹 Step 1：基本資訊
+    # ============================================================
+    st.subheader("① 基本資訊")
+
+    with st.form("rev_step1_form"):
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            cap_mw = st.number_input("儲能額定容量 (MW)", min_value=0.1, value=5.0, step=0.5, format="%.1f")
+            feeder_mw = st.number_input("案場饋線容量 (MW)", min_value=0.1, value=5.0, step=0.5, format="%.1f")
+        with c2:
+            energy_mwh = st.number_input("儲能額定能量 (MWh)", min_value=0.1, value=10.0, step=0.5, format="%.1f")
+            num_units = st.number_input("儲能套數", min_value=1, value=1, step=1)
+        with c3:
+            efficiency_pct = st.number_input("充放電效率 (%)", min_value=1.0, max_value=100.0, value=90.0, step=1.0, format="%.0f")
+            power_fee_rate = st.number_input("節省費率 (EUR/kW)", min_value=0.0, value=5.0, step=0.5, format="%.2f")
+
+        s1_btn = st.form_submit_button("確認基本資訊", type="primary")
+
+    if s1_btn:
+        total_cap = min(cap_mw, feeder_mw) * num_units
+        total_energy = energy_mwh * num_units
+        contracted = cap_mw * num_units
+        power_fee = power_fee_rate * 1000 * contracted
+        st.session_state.update({
+            "rev_s1_done": True,
+            "rev_total_cap": total_cap,
+            "rev_total_energy": total_energy,
+            "rev_contracted": contracted,
+            "rev_power_fee": power_fee,
+            "rev_efficiency": efficiency_pct / 100.0,
+        })
+
+    if st.session_state["rev_s1_done"]:
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("預計總參與容量", f"{st.session_state['rev_total_cap']:.2f} MW")
+        m2.metric("總能量", f"{st.session_state['rev_total_energy']:.2f} MWh")
+        m3.metric("總節省契約量", f"{st.session_state['rev_contracted']:.2f} MW")
+        m4.metric("⚡ Power Fee 預估收益", f"{st.session_state['rev_power_fee']:,.0f} EUR")
+        st.caption("Power Fee = 節省費率 × 1,000 × 總節省契約量(MW)")
+
+    st.divider()
+
+    # ============================================================
+    # 5-3 🔹 Step 2：日前電能市場參數
+    # ============================================================
+    st.subheader("② 日前電能市場參數")
+
+    with st.form("rev_step2_form"):
+        c1, c2 = st.columns(2)
+        with c1:
+            daily_cycles = st.number_input(
+                "每日 Cycle 數（0 ~ 1）",
+                min_value=0.0, max_value=1.0, value=0.8, step=0.1, format="%.1f",
+            )
+            da_country = st.selectbox(
+                "選擇國家 / 區域",
+                options=DA_SUPPORTED_COUNTRIES,
+                format_func=lambda c: SUPPORTED_COUNTRIES[c],
+            )
+        with c2:
+            da_period = st.radio(
+                "價格參考區間",
+                ["前一個月", "前三個月", "自訂區間"],
+                horizontal=True,
+            )
+            da_cs = da_ce = None
+            if da_period == "自訂區間":
+                _yd = date.today() - timedelta(days=1)
+                da_cs = st.date_input("自訂開始日期", value=_yd - timedelta(days=29), max_value=_yd, key="rev_s2_cs")
+                da_ce = st.date_input("自訂結束日期", value=_yd, max_value=date.today(), key="rev_s2_ce")
+
+        s2_btn = st.form_submit_button("取得日前電價並計算", type="primary")
+
+    if s2_btn:
+        if not st.session_state["rev_s1_done"]:
+            st.warning("請先完成第①步，確認基本資訊後再繼續。")
+        else:
+            _yd = date.today() - timedelta(days=1)
+            if da_period == "前一個月":
+                s2_start, s2_end = _yd - timedelta(days=29), _yd
+            elif da_period == "前三個月":
+                s2_start, s2_end = _yd - timedelta(days=89), _yd
+            else:
+                s2_start, s2_end = da_cs, da_ce
+
+            if s2_start > s2_end:
+                st.error("開始日期不能晚於結束日期。")
+            else:
+                try:
+                    with st.spinner("正在向 ENTSO-E 取得日前電價數據，請稍候…"):
+                        _, xml_bytes = fetch_da_price_xml_bytes(
+                            start_date=s2_start,
+                            end_date=s2_end,
+                            country_code=da_country,
+                            token=DEFAULT_ENTSOE_TOKEN,
+                        )
+                        csv_raw = parse_da_xml_to_raw_csv_bytes(xml_bytes, da_country)
+                        csv_hourly = convert_raw_mtu_csv_to_hourly_csv_bytes(csv_raw)
+                        df_h = pd.read_csv(io.StringIO(csv_hourly.decode("utf-8")))
+                        grp = df_h.groupby("Date")["Day-ahead Price (EUR/MWh)"]
+                        avg_max = float(grp.max().mean())
+                        avg_min = float(grp.min().mean())
+                        n_days = int(grp.ngroups)
+                        total_energy = st.session_state["rev_total_energy"]
+                        da_rev = n_days * daily_cycles * total_energy * (avg_max - avg_min)
+                        st.session_state.update({
+                            "rev_s2_done": True,
+                            "rev_s2_avg_max": avg_max,
+                            "rev_s2_avg_min": avg_min,
+                            "rev_s2_days": n_days,
+                            "rev_da_revenue": da_rev,
+                            "rev_s2_label": (
+                                f"{s2_start} ～ {s2_end}"
+                                f"｜{SUPPORTED_COUNTRIES.get(da_country, da_country)}"
+                            ),
+                        })
+                except Exception as e:
+                    st.error(f"日前電價數據取得失敗：{e}")
+
+    if st.session_state["rev_s2_done"]:
+        st.caption(f"資料區間：{st.session_state.get('rev_s2_label', '')}")
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("統計天數", f"{st.session_state['rev_s2_days']} 天")
+        m2.metric("平均每日最高電價", f"{st.session_state['rev_s2_avg_max']:.2f} €/MWh")
+        m3.metric("平均每日最低電價", f"{st.session_state['rev_s2_avg_min']:.2f} €/MWh")
+        m4.metric("⚡ 離尖峰套利預估收益", f"{st.session_state['rev_da_revenue']:,.0f} EUR")
+        st.caption("套利收益 = 天數 × 每日 Cycle 數 × 總能量(MWh) × (平均日最高價 − 平均日最低價)")
+
+    st.divider()
+
+    # ============================================================
+    # 5-4 🔹 Step 3：平衡市場參數
+    # ============================================================
+    st.subheader("③ 平衡市場參數")
+
+    with st.form("rev_step3_form"):
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            direction = st.radio("參與方向", ["向上 (Up)", "向下 (Down)", "雙向 (Both)"])
+            hours_pd = st.number_input(
+                "日參與時數 (hr)", min_value=0.0, max_value=24.0, value=8.0, step=1.0, format="%.1f",
+            )
+            award_pct = st.number_input(
+                "得標率 (%)", min_value=0.0, max_value=100.0, value=70.0, step=5.0, format="%.0f",
+            )
+        with c2:
+            bal_country = st.selectbox(
+                "選擇國家 / 區域",
+                options=BALANCING_CAPACITY_SUPPORTED_COUNTRIES,
+                format_func=lambda c: SUPPORTED_COUNTRIES.get(c, c),
+            )
+        with c3:
+            bal_period = st.radio(
+                "價格參考區間",
+                ["前一個月", "前三個月", "自訂區間"],
+                key="rev_s3_period",
+            )
+            bal_cs = bal_ce = None
+            if bal_period == "自訂區間":
+                _yd2 = date.today() - timedelta(days=1)
+                bal_cs = st.date_input("自訂開始日期", value=_yd2 - timedelta(days=29), max_value=_yd2, key="rev_s3_cs")
+                bal_ce = st.date_input("自訂結束日期", value=_yd2, max_value=date.today(), key="rev_s3_ce")
+
+        s3_btn = st.form_submit_button("取得平衡市場數據並計算", type="primary")
+
+    if s3_btn:
+        if not st.session_state["rev_s1_done"]:
+            st.warning("請先完成第①步，確認基本資訊後再繼續。")
+        else:
+            _yd3 = date.today() - timedelta(days=1)
+            if bal_period == "前一個月":
+                s3_start, s3_end = _yd3 - timedelta(days=29), _yd3
+            elif bal_period == "前三個月":
+                s3_start, s3_end = _yd3 - timedelta(days=89), _yd3
+            else:
+                s3_start, s3_end = bal_cs, bal_ce
+
+            if s3_start > s3_end:
+                st.error("開始日期不能晚於結束日期。")
+            else:
+                try:
+                    with st.spinner("正在向 ENTSO-E 取得平衡市場數據，請稍候（依月分段，可能需要數秒）…"):
+                        _, raw_bytes = fetch_afrr_capacity_raw_csv_bytes(
+                            start_date=s3_start,
+                            end_date=s3_end,
+                            country_code=bal_country,
+                            token=DEFAULT_ENTSOE_TOKEN,
+                        )
+                        filled_bytes = fill_afrr_capacity_csv_bytes(raw_bytes)
+                        df_afrr = pd.read_csv(io.StringIO(filled_bytes.decode("utf-8")))
+
+                        # 將 ISP 價格換算為每小時價格（EUR/MW/h）
+                        _res_multiplier = {"PT15M": 4, "PT30M": 2, "PT60M": 1}
+                        df_afrr["_mult"] = df_afrr["Resolution"].map(_res_multiplier).fillna(1)
+                        df_afrr["_hourly_price"] = df_afrr["Price (EUR/MW/ISP)"] * df_afrr["_mult"]
+
+                        avg_up = df_afrr[df_afrr["Direction"] == "Up"]["_hourly_price"].mean()
+                        avg_down = df_afrr[df_afrr["Direction"] == "Down"]["_hourly_price"].mean()
+                        avg_up = 0.0 if pd.isna(avg_up) else float(avg_up)
+                        avg_down = 0.0 if pd.isna(avg_down) else float(avg_down)
+
+                        n_days_bal = (s3_end - s3_start).days + 1
+                        total_cap = st.session_state["rev_total_cap"]
+                        award_frac = award_pct / 100.0
+
+                        if "向上" in direction:
+                            use_price = avg_up
+                        elif "向下" in direction:
+                            use_price = avg_down
+                        else:
+                            use_price = (avg_up + avg_down) / 2.0
+
+                        bal_rev = n_days_bal * hours_pd * award_frac * use_price * total_cap
+
+                        st.session_state.update({
+                            "rev_s3_done": True,
+                            "rev_s3_avg_up": avg_up,
+                            "rev_s3_avg_down": avg_down,
+                            "rev_s3_days": n_days_bal,
+                            "rev_bal_revenue": bal_rev,
+                            "rev_s3_direction": direction,
+                            "rev_s3_label": (
+                                f"{s3_start} ～ {s3_end}"
+                                f"｜{SUPPORTED_COUNTRIES.get(bal_country, bal_country)}"
+                            ),
+                        })
+                except Exception as e:
+                    st.error(f"平衡市場數據取得失敗：{e}")
+
+    if st.session_state["rev_s3_done"]:
+        st.caption(f"資料區間：{st.session_state.get('rev_s3_label', '')}")
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("統計天數", f"{st.session_state['rev_s3_days']} 天")
+        m2.metric("平均向上調頻價格", f"{st.session_state['rev_s3_avg_up']:.2f} €/MW/h")
+        m3.metric("平均向下調頻價格", f"{st.session_state['rev_s3_avg_down']:.2f} €/MW/h")
+        m4.metric("⚡ 平衡市場預估收益", f"{st.session_state['rev_bal_revenue']:,.0f} EUR")
+        st.caption(
+            f"收益 = 天數 × 日參與時數 × 得標率 × 平均小時價格(€/MW/h) × 總容量(MW)"
+            f"｜參與方向：{st.session_state.get('rev_s3_direction', '')}"
+        )
+
+    # ============================================================
+    # 5-5 🔹 試算結果總覽
+    # ============================================================
+    any_done = (
+        st.session_state["rev_s1_done"]
+        or st.session_state["rev_s2_done"]
+        or st.session_state["rev_s3_done"]
+    )
+    if any_done:
+        st.divider()
+        st.subheader("📊 試算結果總覽")
+
+        pf = st.session_state["rev_power_fee"] if st.session_state["rev_s1_done"] else 0.0
+        da = st.session_state["rev_da_revenue"] if st.session_state["rev_s2_done"] else 0.0
+        bal = st.session_state["rev_bal_revenue"] if st.session_state["rev_s3_done"] else 0.0
+        total = pf + da + bal
+
+        r1, r2, r3, r4 = st.columns(4)
+        r1.metric(
+            "① Power Fee 收益",
+            f"{pf:,.0f} EUR",
+            delta="已確認" if st.session_state["rev_s1_done"] else "尚未計算",
+            delta_color="normal" if st.session_state["rev_s1_done"] else "off",
+        )
+        r2.metric(
+            "② 離尖峰套利收益",
+            f"{da:,.0f} EUR",
+            delta="已確認" if st.session_state["rev_s2_done"] else "尚未計算",
+            delta_color="normal" if st.session_state["rev_s2_done"] else "off",
+        )
+        r3.metric(
+            "③ 平衡市場收益",
+            f"{bal:,.0f} EUR",
+            delta="已確認" if st.session_state["rev_s3_done"] else "尚未計算",
+            delta_color="normal" if st.session_state["rev_s3_done"] else "off",
+        )
+        r4.metric("💰 預估總收益", f"{total:,.0f} EUR")
