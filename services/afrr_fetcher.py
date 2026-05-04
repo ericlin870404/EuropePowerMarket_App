@@ -24,10 +24,10 @@ import xml.etree.ElementTree as ET
 from config.settings import (
     ENTSOE_API_BASE_URL,
     ENTSOE_EIC_BY_COUNTRY,
-    ENTSOE_DOC_TYPE_AFRR_CAPACITY,
-    AFRR_CAPACITY_BUSINESS_TYPE,
-    AFRR_CAPACITY_PROCESS_TYPE,
-    AFRR_CAPACITY_MARKET_AGREEMENT_TYPE,
+    ENTSOE_DOC_TYPE_BALANCING_CAPACITY,
+    BALANCING_CAPACITY_BUSINESS_TYPE,
+    BALANCING_CAPACITY_PROCESS_TYPE_AFRR,
+    BALANCING_CAPACITY_MARKET_AGREEMENT_TYPE,
 )
 from services.data_fetcher import safe_get
 
@@ -240,10 +240,10 @@ def fetch_afrr_capacity_raw_csv_bytes(
         )
 
         params = {
-            "documentType": ENTSOE_DOC_TYPE_AFRR_CAPACITY,
-            "businessType": AFRR_CAPACITY_BUSINESS_TYPE,
-            "processType": AFRR_CAPACITY_PROCESS_TYPE,
-            "Type_MarketAgreement.Type": AFRR_CAPACITY_MARKET_AGREEMENT_TYPE,
+            "documentType": ENTSOE_DOC_TYPE_BALANCING_CAPACITY,
+            "businessType": BALANCING_CAPACITY_BUSINESS_TYPE,
+            "processType": BALANCING_CAPACITY_PROCESS_TYPE_AFRR,
+            "Type_MarketAgreement.Type": BALANCING_CAPACITY_MARKET_AGREEMENT_TYPE,
             "controlArea_Domain": control_area,
             "periodStart": period_start_str,
             "periodEnd": period_end_str,

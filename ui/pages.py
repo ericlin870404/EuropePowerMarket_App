@@ -13,7 +13,8 @@
    3-3. 執行資料處理 (從 Session State 讀取資料)
    3-4. 渲染按鈕區域 (包含 XML/Raw/Hourly 三種下載按鈕 + 進階分析)
    3-5. 渲染進階分析區塊 (呼叫 calculate_daily_stats，四欄排版)
-4. 定義其他功能頁面 (aFRR、收益試算)
+4. 定義 render_fetch_balancing_capacity_page()：平衡服務市場容量價格頁面
+5. 定義其他功能頁面 (收益試算)
 """
 
 # =========================== #
@@ -31,7 +32,7 @@ from config.settings import (
     DEFAULT_ENTSOE_TOKEN,
     DA_SUPPORTED_COUNTRIES,    # List: ["FR", "NL", ...]
     DA_DOWNLOAD_OPTIONS,
-    AFRR_SUPPORTED_COUNTRIES,  # List: ["FR", "NL", ...]
+    BALANCING_CAPACITY_SUPPORTED_COUNTRIES,  # List: ["FR", "NL", ...]
 )
 
 from services.data_fetcher import fetch_da_price_xml_bytes
@@ -475,9 +476,9 @@ def render_dashboard_page() -> None:
 
 
 # =========================== #
-# 4 🔹 定義 render_fetch_afrr_capacity_page()
+# 4 🔹 定義 render_fetch_balancing_capacity_page()
 # =========================== #
-def render_fetch_afrr_capacity_page() -> None:
+def render_fetch_balancing_capacity_page() -> None:
     """
     📌 整體流程：
     1. 初始化 Session State
@@ -485,7 +486,7 @@ def render_fetch_afrr_capacity_page() -> None:
     3. 執行 API 呼叫並存入 Session State
     4. 渲染下載按鈕區域（原始 CSV / 補值 CSV）
     """
-    st.header("資料下載｜平衡服務市場 - aFRR 容量價格")
+    st.header("資料下載｜平衡服務市場 - 容量價格")
     st.markdown("數據來源為 **ENTSO-E Transparency Platform**")
 
     # 1 🔹 初始化 Session State
@@ -504,12 +505,12 @@ def render_fetch_afrr_capacity_page() -> None:
 
         country_code = st.selectbox(
             "選擇國家 / 區域",
-            options=AFRR_SUPPORTED_COUNTRIES,
+            options=BALANCING_CAPACITY_SUPPORTED_COUNTRIES,
             format_func=lambda c: SUPPORTED_COUNTRIES.get(c, c),
         )
 
-        # 交易商品目前僅支援 aFRR 容量，日後可擴充
-        st.selectbox("交易商品", options=["aFRR 容量"], disabled=True)
+        # 交易商品目前僅支援 aFRR，日後可擴充（FCR/mFRR/RR）
+        st.selectbox("交易商品", options=["aFRR"], disabled=True)
 
         submitted = st.form_submit_button("向 ENTSO-E 發送請求")
 

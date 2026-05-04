@@ -20,7 +20,7 @@ from config.settings import APP_TITLE, USERS
 from ui.pages import (
     render_dashboard_page,
     render_fetch_da_price_page,
-    render_fetch_afrr_capacity_page,
+    render_fetch_balancing_capacity_page,
     render_revenue_calc_page,
 )
 from ui.ui_theme import MINIMAL_MAIN_MENU_STYLES, MINIMAL_SUB_MENU_STYLES
@@ -80,7 +80,7 @@ def show_main_app():
                 menu_title=None,
                 options=[
                     "電能現貨市場 - 日前市場價格",
-                    "平衡服務市場 - aFRR容量價格",
+                    "平衡服務市場 - 容量價格",
                 ],
                 icons=["graph-up", "activity"],
                 default_index=0,
@@ -94,8 +94,8 @@ def show_main_app():
     elif main_choice == "資料下載":
         if sub_choice == "電能現貨市場 - 日前市場價格":
             render_fetch_da_price_page()
-        elif sub_choice == "平衡服務市場 - aFRR容量價格":
-            render_fetch_afrr_capacity_page()
+        elif sub_choice == "平衡服務市場 - 容量價格":
+            render_fetch_balancing_capacity_page()
 
     elif main_choice == "收益試算":
         render_revenue_calc_page()
