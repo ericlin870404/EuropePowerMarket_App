@@ -50,7 +50,7 @@ _DASHBOARD_ZONES = ["FR", "CH", "ES", "PT", "NL", "IT-North", "IT-South"]
 # 3 🔹 定義 render_fetch_da_price_page()
 # =========================== #
 def render_fetch_da_price_page() -> None:
-    st.header("資料獲取｜電能現貨市場 - 日前市場價格")
+    st.header(ㄏ)
 
     st.markdown(
         """
@@ -349,6 +349,7 @@ def render_dashboard_page() -> None:
         xaxis=dict(showgrid=False, tickfont=_TICK_FONT, linecolor="#E2E8F0", title_font=_AXIS_FONT),
         yaxis=dict(gridcolor="#EEF2F7", tickfont=_TICK_FONT, linecolor="#E2E8F0", zeroline=False, title_font=_AXIS_FONT),
         font=dict(family="Inter, -apple-system, sans-serif"),
+        hoverlabel=dict(font_size=18, font_family="Inter, -apple-system, sans-serif"),
     )
 
     for zone_key in _DASHBOARD_ZONES:
