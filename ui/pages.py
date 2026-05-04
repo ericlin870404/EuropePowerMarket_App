@@ -31,6 +31,7 @@ from config.settings import (
     DEFAULT_ENTSOE_TOKEN,
     DA_SUPPORTED_COUNTRIES,    # List: ["FR", "NL", ...]
     DA_DOWNLOAD_OPTIONS,
+    AFRR_SUPPORTED_COUNTRIES,  # List: ["FR", "NL", ...]
 )
 
 from services.data_fetcher import fetch_da_price_xml_bytes
@@ -38,6 +39,10 @@ from services.data_processor import (
     parse_da_xml_to_raw_csv_bytes,
     convert_raw_mtu_csv_to_hourly_csv_bytes,
     calculate_daily_stats,
+)
+from services.afrr_fetcher import (
+    fetch_afrr_capacity_raw_csv_bytes,
+    fill_afrr_capacity_csv_bytes,
 )
 from services.supabase_reader import fetch_daily_avg_prices
 from ui.ui_theme import inject_dashboard_css, kpi_card, zone_header_html
@@ -50,7 +55,7 @@ _DASHBOARD_ZONES = ["FR", "CH", "ES", "PT", "NL", "IT-North", "IT-South"]
 # 3 🔹 定義 render_fetch_da_price_page()
 # =========================== #
 def render_fetch_da_price_page() -> None:
-    st.header(ㄏ)
+    st.header("資料下載｜電能現貨市場 - 日前市場價格")
 
     st.markdown(
         """
@@ -469,9 +474,105 @@ def render_dashboard_page() -> None:
 # =========================== #
 
 
-def render_fetch_afrr_capacity_page():
+# =========================== #
+# 4 🔹 定義 render_fetch_afrr_capacity_page()
+# =========================== #
+def render_fetch_afrr_capacity_page() -> None:
+    """
+    📌 整體流程：
+    1. 初始化 Session State
+    2. 建立搜尋表單（日期、國家、交易商品）
+    3. 執行 API 呼叫並存入 Session State
+    4. 渲染下載按鈕區域（原始 CSV / 補值 CSV）
+    """
     st.header("資料下載｜平衡服務市場 - aFRR 容量價格")
-    st.info("此功能尚未實作。")
+    st.markdown("數據來源為 **ENTSO-E Transparency Platform**")
+
+    # 1 🔹 初始化 Session State
+    if "afrr_raw_csv_bytes" not in st.session_state:
+        st.session_state["afrr_raw_csv_bytes"] = None
+    if "afrr_file_name" not in st.session_state:
+        st.session_state["afrr_file_name"] = ""
+
+    # 2 🔹 建立搜尋表單
+    with st.form("fetch_afrr_capacity_form"):
+        col1, col2 = st.columns(2)
+        with col1:
+            start_date = st.date_input("開始日期", value=date(2025, 1, 1))
+        with col2:
+            end_date = st.date_input("結束日期", value=date.today())
+
+        country_code = st.selectbox(
+            "選擇國家 / 區域",
+            options=AFRR_SUPPORTED_COUNTRIES,
+            format_func=lambda c: SUPPORTED_COUNTRIES.get(c, c),
+        )
+
+        # 交易商品目前僅支援 aFRR 容量，日後可擴充
+        st.selectbox("交易商品", options=["aFRR 容量"], disabled=True)
+
+        submitted = st.form_submit_button("向 ENTSO-E 發送請求")
+
+    # 3 🔹 執行輸入驗證與 API 呼叫
+    if submitted:
+        if start_date > end_date:
+            st.error("開始日期不能晚於結束日期。")
+            return
+
+        token = DEFAULT_ENTSOE_TOKEN
+        if not token:
+            st.error("系統尚未設定 ENTSO-E API Token，請聯絡維護人員。")
+            return
+
+        try:
+            with st.spinner("正在向 ENTSO-E 取得 aFRR 容量市場數據（依月分段請求，可能需要數秒）…"):
+                file_name, raw_csv_bytes = fetch_afrr_capacity_raw_csv_bytes(
+                    start_date=start_date,
+                    end_date=end_date,
+                    country_code=country_code,
+                    token=token,
+                )
+            st.session_state["afrr_raw_csv_bytes"] = raw_csv_bytes
+            st.session_state["afrr_file_name"] = file_name
+        except Exception as e:
+            st.error(f"API 請求失敗：{e}")
+            return
+
+    # 4 🔹 渲染下載按鈕區域
+    if st.session_state["afrr_raw_csv_bytes"] is not None:
+        raw_csv_bytes = st.session_state["afrr_raw_csv_bytes"]
+        file_name = st.session_state["afrr_file_name"]
+
+        try:
+            filled_csv_bytes = fill_afrr_capacity_csv_bytes(raw_csv_bytes)
+        except Exception as e:
+            st.error(f"補值處理失敗：{e}")
+            return
+
+        st.success("數據準備完成！請選擇要下載的檔案格式：")
+
+        col1, col2, _ = st.columns([2, 2, 5])
+        with col1:
+            st.download_button(
+                label="下載 CSV (原始)",
+                data=raw_csv_bytes,
+                file_name=file_name,
+                mime="text/csv",
+                use_container_width=True,
+            )
+        with col2:
+            st.download_button(
+                label="下載 CSV (補值)",
+                data=filled_csv_bytes,
+                file_name=file_name.replace("_raw.csv", "_filled.csv"),
+                mime="text/csv",
+                use_container_width=True,
+            )
+
+        st.caption(
+            "＊「原始」為 ENTSO-E 實際回傳的 ISP 資料；"
+            "「補值」已依各國解析度補齊所有 ISP 時間段。"
+        )
 
 
 def render_revenue_calc_page():

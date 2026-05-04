@@ -40,6 +40,13 @@ DA_DOWNLOAD_OPTIONS: Dict[str, bool] = {
     "csv_hourly": True,       # 開關：每小時 CSV
 }
 
+# 2-3 🔹 平衡服務市場 (aFRR 容量) 專屬參數
+ENTSOE_DOC_TYPE_AFRR_CAPACITY: str = "A81"         # A81 = ReserveBid_MarketDocument
+AFRR_CAPACITY_BUSINESS_TYPE: str = "B95"            # B95 = Frequency Restoration Reserve
+AFRR_CAPACITY_PROCESS_TYPE: str = "A51"             # A51 = Automatic frequency restoration
+AFRR_CAPACITY_MARKET_AGREEMENT_TYPE: str = "A01"   # A01 = Daily
+AFRR_SUPPORTED_COUNTRIES: List[str] = ["FR", "NL", "ES", "BE", "CZ", "CH"]
+
 # =========================== #
 # 3 🔹 定義國家與區域設定
 # =========================== #
