@@ -22,6 +22,7 @@ from ui.pages import (
     render_fetch_da_price_page,
     render_fetch_balancing_capacity_page,
     render_revenue_calc_page,
+    render_chart_page,
 )
 from ui.ui_theme import MINIMAL_MAIN_MENU_STYLES, MINIMAL_SUB_MENU_STYLES
 
@@ -66,8 +67,8 @@ def show_main_app():
         # 3-1 🔹 側邊欄：第一層主選單 (Dashboard / 資料下載 / 收益試算)
         main_choice = option_menu(
             menu_title=None,
-            options=["Dashboard", "資料下載", "收益試算"],
-            icons=["speedometer2", "cloud-download", "calculator"],
+            options=["Dashboard", "資料下載", "收益試算", "繪圖區"],
+            icons=["speedometer2", "cloud-download", "calculator", "bar-chart-line"],
             default_index=0,
             styles=MINIMAL_MAIN_MENU_STYLES,
         )
@@ -76,6 +77,18 @@ def show_main_app():
         sub_choice = None
 
         if main_choice == "資料下載":
+            sub_choice = option_menu(
+                menu_title=None,
+                options=[
+                    "電能現貨市場 - 日前市場價格",
+                    "平衡服務市場 - 容量價格",
+                ],
+                icons=["graph-up", "activity"],
+                default_index=0,
+                styles=MINIMAL_SUB_MENU_STYLES,
+            )
+
+        if main_choice == "繪圖區":
             sub_choice = option_menu(
                 menu_title=None,
                 options=[
@@ -99,6 +112,12 @@ def show_main_app():
 
     elif main_choice == "收益試算":
         render_revenue_calc_page()
+
+    elif main_choice == "繪圖區":
+        if sub_choice == "電能現貨市場 - 日前市場價格":
+            render_chart_page(sub="da")
+        elif sub_choice == "平衡服務市場 - 容量價格":
+            render_chart_page(sub="balancing")
 
 
 # =========================== #

@@ -31,7 +31,6 @@ import plotly.graph_objects as go
 # 引入設定檔
 from config.settings import (
     SUPPORTED_COUNTRIES,       # Dict: 代碼 -> 中文名稱
-    SUPPORTED_COUNTRIES_EN,    # Dict: 代碼 -> 英文名稱
     DEFAULT_ENTSOE_TOKEN,
     DA_SUPPORTED_COUNTRIES,    # List: ["FR", "NL", ...]
     DA_DOWNLOAD_OPTIONS,
@@ -987,17 +986,16 @@ def _build_spread_overlay_chart(
     return fig
 
 
-def render_chart_page(sub: str = "da") -> None:
+def render_chart_page() -> None:
     """
     📌 整體流程：
     1. 頁面標題
-    2. 依 sub 參數分派：da = 日前電價市場；balancing = 平衡服務市場（占位）
-    3. 日前電價市場分析區塊
-       3-1. 選擇國家
-       3-2. 設定多個時間區間（至少 2 個）
-       3-3. 自動判斷比較模式（跨年度 or 跨國家）
-       3-4. 從 Supabase 取資料並繪製 spread 疊圖
-       3-5. 顯示各區間平均 spread KPI 卡片
+    2. 日前電價市場分析區塊
+       2-1. 選擇國家
+       2-2. 設定多個時間區間（至少 2 個）
+       2-3. 自動判斷比較模式（跨年度 or 跨國家）
+       2-4. 從 Supabase 取資料並繪製 spread 疊圖
+       2-5. 顯示各區間平均 spread KPI 卡片
     """
     # 6-1 🔹 頁面標題
     st.markdown("""
@@ -1007,13 +1005,7 @@ def render_chart_page(sub: str = "da") -> None:
         </div>
     """, unsafe_allow_html=True)
 
-    # 6-2 🔹 依 sub 分派頁面
-    if sub == "balancing":
-        st.subheader("Balancing Capacity Market")
-        st.info("此繪圖功能尚未開放，敬請期待。")
-        return
-
-    # ── 以下為 DA 日前電價市場 ──
+    # 6-2 🔹 日前電價市場分析區塊
     st.subheader("Day-Ahead Price Market")
     st.caption("從 Supabase 讀取已儲存的日均電價資料，繪製 Daily Price Spread 疊圖。")
 
@@ -1123,7 +1115,6 @@ def render_chart_page(sub: str = "da") -> None:
                 continue
 
             # 6-5-1 🔹 建立「月/日」對齊的 plot_date（用於 x 軸跨年比較）
-            zone_en = SUPPORTED_COUNTRIES_EN.get(zone, zone)
             if compare_mode == "同一國家、不同年度區間":
                 df["plot_date"] = df["delivery_date"].apply(
                     lambda d: d.replace(year=2000)  # 統一對齊到同一年以疊合 x 軸
@@ -1132,13 +1123,13 @@ def render_chart_page(sub: str = "da") -> None:
                 full_label  = f"{iv['start'].year} ({iv['start'].strftime('%m/%d')}–{iv['end'].strftime('%m/%d')})"
             else:
                 df["plot_date"] = df["delivery_date"]
-                short_label = zone_en
-                full_label  = f"{zone_en} ({iv['start'].strftime('%Y/%m/%d')}–{iv['end'].strftime('%Y/%m/%d')})"
+                zone_name   = SUPPORTED_COUNTRIES.get(zone, zone)
+                short_label = zone_name
+                full_label  = f"{zone_name} ({iv['start'].strftime('%Y/%m/%d')}–{iv['end'].strftime('%Y/%m/%d')})"
 
             series_list.append({
                 "short_label": short_label,
                 "full_label":  full_label,
-                "zone_en":     zone_en,
                 "df":    df,
                 "color": _SERIES_COLORS[i % len(_SERIES_COLORS)],
                 "iv":    iv,
@@ -1148,11 +1139,11 @@ def render_chart_page(sub: str = "da") -> None:
         st.warning("所有區間均無資料，無法繪圖。")
         return
 
-    # 6-6 🔹 自動產生主標題（全英文）
+    # 6-6 🔹 自動產生主標題
     if compare_mode == "同一國家、不同年度區間":
-        zone_en_title = SUPPORTED_COUNTRIES_EN.get(zone_key, zone_key)
-        years_str     = " vs. ".join(str(s["iv"]["start"].year) for s in series_list)
-        chart_title   = f"{zone_en_title} Daily Price Spread ({years_str})"
+        zone_name   = SUPPORTED_COUNTRIES.get(zone_key, zone_key)
+        years_str   = " vs. ".join(str(s["iv"]["start"].year) for s in series_list)
+        chart_title = f"{zone_name} Daily Price Spread ({years_str})"
     else:
         zones_str   = " vs. ".join(s["short_label"] for s in series_list)
         year_str    = str(intervals[0]["start"].year)
