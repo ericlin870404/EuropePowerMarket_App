@@ -4,3 +4,6 @@
 
 # Streamlit secrets (含 Supabase 憑證，絕對不能 commit)
 .streamlit/secrets.toml
+
+# Claude Code 編輯暫存檔
+*.tmp.*
