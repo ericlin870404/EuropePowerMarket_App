@@ -47,7 +47,7 @@ ENTSOE_DOC_TYPE_BALANCING_CAPACITY: str = "A81"            # A81 = ReserveBid_Ma
 BALANCING_CAPACITY_BUSINESS_TYPE: str = "B95"              # B95 = Frequency Restoration Reserve
 BALANCING_CAPACITY_PROCESS_TYPE_AFRR: str = "A51"          # A51 = Automatic frequency restoration reserve
 BALANCING_CAPACITY_MARKET_AGREEMENT_TYPE: str = "A01"      # A01 = Daily
-BALANCING_CAPACITY_SUPPORTED_COUNTRIES: List[str] = ["FR", "NL", "ES", "BE", "CZ", "CH"]
+BALANCING_CAPACITY_SUPPORTED_COUNTRIES: List[str] = ["FR", "NL", "ES", "PT", "BE", "CZ", "CH"]
 
 # =========================== #
 # 3 🔹 定義國家與區域設定
