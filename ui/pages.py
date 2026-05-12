@@ -47,6 +47,7 @@ from services.data_processor import (
 from services.afrr_fetcher import (
     fetch_afrr_capacity_raw_csv_bytes,
     fill_afrr_capacity_csv_bytes,
+    convert_afrr_filled_to_hourly_csv_bytes,
 )
 from services.supabase_reader import fetch_daily_avg_prices, fetch_negative_price_stats
 from ui.ui_theme import inject_dashboard_css, kpi_card, zone_header_html
@@ -555,7 +556,13 @@ def render_fetch_balancing_capacity_page() -> None:
 
         st.success("數據準備完成！請選擇要下載的檔案格式：")
 
-        col1, col2, _ = st.columns([2, 2, 5])
+        try:
+            hourly_csv_bytes = convert_afrr_filled_to_hourly_csv_bytes(filled_csv_bytes)
+        except Exception as e:
+            st.error(f"小時彙總處理失敗：{e}")
+            return
+
+        col1, col2, col3, _ = st.columns([2, 2, 2, 3])
         with col1:
             st.download_button(
                 label="下載 CSV (原始)",
@@ -572,10 +579,19 @@ def render_fetch_balancing_capacity_page() -> None:
                 mime="text/csv",
                 use_container_width=True,
             )
+        with col3:
+            st.download_button(
+                label="下載 CSV (小時)",
+                data=hourly_csv_bytes,
+                file_name=file_name.replace("_raw.csv", "_hourly.csv"),
+                mime="text/csv",
+                use_container_width=True,
+            )
 
         st.caption(
             "＊「原始」為 ENTSO-E 實際回傳的 ISP 資料；"
-            "「補值」已依各國解析度補齊所有 ISP 時間段。"
+            "「補值」已依各國解析度補齊所有 ISP 時間段；"
+            "「小時」已將 ISP 價格依方向（Up/Down）彙總為每小時（EUR/MW/h）。"
         )
 
 

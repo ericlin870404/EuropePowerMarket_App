@@ -375,3 +375,61 @@ def fill_afrr_capacity_csv_bytes(raw_csv_bytes: bytes) -> bytes:
     buf = io.StringIO()
     df_filled.to_csv(buf, index=False)
     return buf.getvalue().encode("utf-8")
+
+
+# =========================== #
+# 7 🔹 主功能：補值後轉為小時 CSV
+# =========================== #
+def convert_afrr_filled_to_hourly_csv_bytes(filled_csv_bytes: bytes) -> bytes:
+    """
+    📌 整體流程：
+    1. 讀取補值後 CSV，驗證必要欄位
+    2. 依 Resolution 計算每小時含幾個 ISP（PT15M→4, PT30M→2, PT60M→1）
+    3. 依 (Delivery Period, Direction) 分組，彙總每小時價格加總
+    4. 輸出僅含 Date / Hour / Price (EUR/MW/h) / Direction 的 CSV bytes
+    """
+    import math
+
+    # 7-1 🔹 讀取並驗證
+    df = pd.read_csv(io.StringIO(filled_csv_bytes.decode("utf-8")))
+    required_cols = {"Delivery Period", "ISP Index", "Resolution", "Price (EUR/MW/ISP)", "Direction"}
+    missing = required_cols - set(df.columns)
+    if missing:
+        raise ValueError(f"補值 CSV 缺少必要欄位：{missing}")
+
+    df["ISP Index"] = pd.to_numeric(df["ISP Index"], errors="coerce")
+    df["Price (EUR/MW/ISP)"] = pd.to_numeric(df["Price (EUR/MW/ISP)"], errors="coerce")
+    df.dropna(subset=["ISP Index", "Price (EUR/MW/ISP)"], inplace=True)
+    df["ISP Index"] = df["ISP Index"].astype(int)
+
+    # 7-2 🔹 依解析度計算每小時的 ISP 數
+    def _isp_per_hour(resolution: str) -> int:
+        res = resolution.strip().upper()
+        if res == "P1D":
+            return 24
+        if res.startswith("PT") and res.endswith("M"):
+            return 60 // int(res[2:-1])
+        raise ValueError(f"不支援的解析度：{resolution}")
+
+    # 7-3 🔹 逐列計算所屬小時（依各列自身 Resolution）
+    def _compute_hour(row):
+        isp_per_h = _isp_per_hour(row["Resolution"])
+        return math.ceil(row["ISP Index"] / isp_per_h)
+
+    df["Hour"] = df.apply(_compute_hour, axis=1)
+
+    # 7-4 🔹 依 (日期, Hour, Direction) 加總 ISP 價格
+    hourly = (
+        df.groupby(["Delivery Period", "Hour", "Direction"], sort=True)["Price (EUR/MW/ISP)"]
+        .sum()
+        .reset_index()
+    )
+    hourly.rename(columns={
+        "Delivery Period": "Date",
+        "Price (EUR/MW/ISP)": "Price (EUR/MW/h)",
+    }, inplace=True)
+    hourly = hourly[["Date", "Hour", "Price (EUR/MW/h)", "Direction"]]
+
+    buf = io.StringIO()
+    hourly.to_csv(buf, index=False)
+    return buf.getvalue().encode("utf-8")
