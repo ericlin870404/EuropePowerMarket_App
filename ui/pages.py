@@ -13,7 +13,7 @@
    3-3. 執行資料處理 (從 Session State 讀取資料)
    3-4. 渲染按鈕區域 (包含 XML/Raw/Hourly 三種下載按鈕 + 進階分析)
    3-5. 渲染進階分析區塊 (呼叫 calculate_daily_stats，四欄排版)
-4. 定義 render_fetch_balancing_capacity_page()：平衡服務市場容量價格頁面
+4. 定義 render_fetch_balancing_capacity_page()：平衡服務市場容量價格頁面（含進階分析）
 5. 定義其他功能頁面 (收益試算)
 """
 
@@ -488,7 +488,8 @@ def render_fetch_balancing_capacity_page() -> None:
     1. 初始化 Session State
     2. 建立搜尋表單（日期、國家、交易商品）
     3. 執行 API 呼叫並存入 Session State
-    4. 渲染下載按鈕區域（原始 CSV / 補值 CSV）
+    4. 渲染下載按鈕區域（原始 CSV / 補值 CSV / 小時 CSV）
+    5. 渲染進階分析區塊（每個方向每小時的平均，Excel 下載）
     """
     st.header("資料下載｜平衡服務市場 - 容量價格")
     st.markdown("數據來源為 **ENTSO-E Transparency Platform**")
@@ -593,6 +594,44 @@ def render_fetch_balancing_capacity_page() -> None:
             "「補值」已依各國解析度補齊所有 ISP 時間段；"
             "「小時」已將 ISP 價格依方向（Up/Down）彙總為每小時（EUR/MW/h）。"
         )
+
+        # 4-1 🔹 進階分析：每個方向每小時的平均價格
+        with st.expander("📊 進階分析", expanded=False):
+            st.markdown("##### 每個方向每小時的平均容量價格")
+            st.caption("以查詢期間內所有日期為樣本，依方向（Up / Down）與小時（1–24）計算平均價格。")
+
+            try:
+                df_hourly = pd.read_csv(io.StringIO(hourly_csv_bytes.decode("utf-8")))
+                df_avg = (
+                    df_hourly.groupby(["Direction", "Hour"], sort=True)["Price (EUR/MW/h)"]
+                    .mean()
+                    .reset_index()
+                    .rename(columns={"Price (EUR/MW/h)": "Average Price (EUR/MW/h)"})
+                )
+                df_avg["Average Price (EUR/MW/h)"] = df_avg["Average Price (EUR/MW/h)"].round(2)
+
+                # 轉為樞紐表：列=小時，欄=方向，方便瀏覽
+                df_pivot = df_avg.pivot(index="Hour", columns="Direction", values="Average Price (EUR/MW/h)")
+                df_pivot.index.name = "Hour"
+                df_pivot.columns.name = None
+                df_pivot = df_pivot.reset_index()
+
+                st.dataframe(df_pivot, use_container_width=True, hide_index=True)
+
+                # 產生 Excel bytes
+                excel_buf = io.BytesIO()
+                with pd.ExcelWriter(excel_buf, engine="openpyxl") as writer:
+                    df_avg.to_excel(writer, index=False, sheet_name="方向小時平均")
+                excel_bytes = excel_buf.getvalue()
+
+                st.download_button(
+                    label="下載 Excel（每個方向每小時的平均）",
+                    data=excel_bytes,
+                    file_name=file_name.replace("_raw.csv", "_hourly_avg_by_direction.xlsx"),
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+            except Exception as e:
+                st.error(f"進階分析處理失敗：{e}")
 
 
 # =========================== #

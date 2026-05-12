@@ -4,3 +4,4 @@ requests
 streamlit-option-menu
 plotly
 supabase
+openpyxl
