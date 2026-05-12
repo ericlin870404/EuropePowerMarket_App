@@ -1052,6 +1052,85 @@ def _build_afrr_overlay_chart(
     return fig
 
 
+def _build_avg_price_overlay_chart(
+    series_list: list[dict],
+    chart_title: str,
+) -> go.Figure:
+    """
+    📌 整體流程：
+    1. 建立空白 Figure
+    2. 逐一加入每條均價折線（各系列 avg_price 疊圖）
+    3. 套用統一 layout 樣式
+
+    參數 series_list 每個元素：
+      {"short_label": str, "df": pd.DataFrame (含 plot_date, avg_price), "color": str}
+    """
+    # 6-1A 🔹 版面樣式常數
+    _AXIS_FONT = dict(size=15, color="#64748B")
+    _TICK_FONT = dict(size=14, color="#64748B")
+
+    fig = go.Figure()
+
+    # 6-2A 🔹 逐條加入折線
+    for s in series_list:
+        df = s["df"].sort_values("plot_date")
+        fig.add_trace(go.Scatter(
+            x=df["plot_date"],
+            y=df["avg_price"],
+            mode="lines",
+            name=s["short_label"],
+            line=dict(color=s["color"], width=2),
+            hovertemplate=(
+                "%{x|%m/%d}<br>"
+                f"<b>{s['short_label']}</b><br>"
+                "<b>%{y:.2f} €/MWh</b><extra></extra>"
+            ),
+        ))
+
+    # 6-3A 🔹 套用 layout
+    fig.update_layout(
+        template="plotly_white",
+        height=560,
+        margin=dict(l=10, r=20, t=80, b=10),
+        paper_bgcolor="#FAFBFD",
+        plot_bgcolor="#FAFBFD",
+        title=dict(
+            text=chart_title,
+            x=0.5,
+            xanchor="center",
+            font=dict(size=22, color="#0F172A", family="Inter, -apple-system, sans-serif"),
+        ),
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.0,
+            xanchor="right",
+            x=1.0,
+            bgcolor="rgba(0,0,0,0)",
+            borderwidth=0,
+            font=dict(size=14),
+        ),
+        xaxis=dict(
+            showgrid=False,
+            tickfont=_TICK_FONT,
+            linecolor="#E2E8F0",
+            title_font=_AXIS_FONT,
+            tickformat="%m/%d",
+        ),
+        yaxis=dict(
+            gridcolor="#EEF2F7",
+            tickfont=_TICK_FONT,
+            linecolor="#E2E8F0",
+            zeroline=False,
+            title_text="Daily Avg Price (€/MWh)",
+            title_font=dict(size=17, color="#64748B"),
+        ),
+        font=dict(family="Inter, -apple-system, sans-serif"),
+        hoverlabel=dict(font_size=16, font_family="Inter, -apple-system, sans-serif"),
+    )
+    return fig
+
+
 def _build_spread_overlay_chart(
     series_list: list[dict],
     chart_title: str,
@@ -1137,17 +1216,13 @@ def render_chart_page(sub: str = "da") -> None:
     1. 頁面標題
     2. 依 sub 參數分派：da = 日前電價市場；balancing = aFRR 容量市場
     3. 日前電價市場分析區塊
-       3-1. 選擇國家
-       3-2. 設定多個時間區間（至少 2 個）
-       3-3. 自動判斷比較模式（跨年度 or 跨國家）
-       3-4. 從 Supabase 取資料並繪製 spread 疊圖
-       3-5. 顯示各區間平均 spread KPI 卡片
+       3-1. 比較模式選擇（單一國家單一區間 / 跨年度 / 跨國家）
+       3-2. 單一模式：均價+最高+最低三線 + 陰影帶，顯示 KPI
+       3-3. 跨年度 / 跨國家模式：多區間 spread 疊圖 + KPI
     4. aFRR 容量市場分析區塊
-       4-1. 比較模式選擇 + 方向選擇 + 區間數量
-       4-2. 依比較模式渲染輸入區
-       4-3. 向 ENTSO-E 打 API、補值、前處理（15min→hourly + 方向）
-       4-4. 繪製疊圖
-       4-5. KPI 統計卡片
+       4-1. 比較模式選擇（單一國家單一區間 / 跨年度 / 跨國家）+ 方向選擇
+       4-2. 單一模式：打 API→補值→折線圖，顯示 KPI
+       4-3. 跨年度 / 跨國家模式：多區間疊圖 + KPI
     """
     # 6-1 🔹 頁面標題
     st.markdown("""
@@ -1165,7 +1240,7 @@ def render_chart_page(sub: str = "da") -> None:
         # ── 比較模式 ──
         compare_mode = st.radio(
             "比較模式",
-            ["同一國家、不同年度區間", "同一年度區間、不同國家"],
+            ["單一國家單一區間", "同一國家、不同年度區間", "同一年度區間、不同國家"],
             horizontal=True,
             label_visibility="collapsed",
             key="afrr_compare_mode",
@@ -1183,15 +1258,137 @@ def render_chart_page(sub: str = "da") -> None:
 
         st.divider()
 
-        # ── 區間數量 ──
-        n_series = st.number_input(
-            "區間數量（最少 2 個）",
-            min_value=2, max_value=6, value=2, step=1,
-            key="afrr_n_series",
-        )
-
         # 6-3 🔹 依比較模式渲染輸入區
-        if compare_mode == "同一國家、不同年度區間":
+
+        # ── 單一國家單一區間 ──
+        if compare_mode == "單一國家單一區間":
+            c1, c2, c3 = st.columns([2, 1, 1])
+            with c1:
+                zone_key = st.selectbox(
+                    "選擇國家 / 區域",
+                    options=BALANCING_CAPACITY_SUPPORTED_COUNTRIES,
+                    format_func=lambda c: SUPPORTED_COUNTRIES.get(c, c),
+                    key="afrr_single_zone",
+                )
+            with c2:
+                single_start = st.date_input("開始日期", value=date(2025, 1, 1), key="afrr_single_s")
+            with c3:
+                single_end   = st.date_input("結束日期",   value=date(2025, 5, 10), key="afrr_single_e")
+
+            st.markdown("")
+            if st.button("繪製圖表", type="primary", key="afrr_single_plot_btn"):
+                if single_start > single_end:
+                    st.error("開始日期不能晚於結束日期。")
+                    st.session_state["afrr_single_df"] = None
+                else:
+                    token = DEFAULT_ENTSOE_TOKEN
+                    if not token:
+                        st.error("系統尚未設定 ENTSO-E API Token，請聯絡維護人員。")
+                        st.session_state["afrr_single_df"] = None
+                    else:
+                        with st.spinner("向 ENTSO-E 取得 aFRR 容量市場資料並前處理…"):
+                            try:
+                                _, raw_bytes = fetch_afrr_capacity_raw_csv_bytes(
+                                    start_date=single_start,
+                                    end_date=single_end,
+                                    country_code=zone_key,
+                                    token=token,
+                                )
+                                filled_bytes = fill_afrr_capacity_csv_bytes(raw_bytes)
+                                df_daily = _afrr_15min_to_hourly(filled_bytes, direction_mode)
+                            except Exception as e:
+                                st.error(f"API 失敗：{e}")
+                                df_daily = pd.DataFrame()
+
+                        if df_daily.empty:
+                            st.warning(f"查無 {zone_key} 在此區間的 {direction_label} 方向資料。")
+                            st.session_state["afrr_single_df"] = None
+                        else:
+                            df_daily["plot_dt"] = pd.to_datetime(df_daily["delivery_date"])
+                            df_daily = df_daily.sort_values("plot_dt")
+                            zone_en = SUPPORTED_COUNTRIES_EN.get(zone_key, zone_key)
+                            _DIR_TITLE = {"Up": "Up", "Down": "Down", "Both": "Avg Up+Down"}
+                            dir_title = _DIR_TITLE.get(direction_mode, direction_mode)
+                            date_range = f"{single_start.strftime('%Y/%m/%d')}–{single_end.strftime('%Y/%m/%d')}"
+                            st.session_state["afrr_single_df"]      = df_daily
+                            st.session_state["afrr_single_zone_en"] = zone_en
+                            st.session_state["afrr_single_title"]   = f"{zone_en} aFRR Capacity Price [{dir_title}] ({date_range})"
+
+            if st.session_state.get("afrr_single_df") is not None:
+                df_daily = st.session_state["afrr_single_df"]
+                zone_en  = st.session_state["afrr_single_zone_en"]
+
+                chart_title = st.text_input(
+                    "✏️ 圖表主標題",
+                    key="afrr_single_title",
+                )
+
+                _AXIS_FONT = dict(size=15, color="#64748B")
+                _TICK_FONT = dict(size=14, color="#64748B")
+
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(
+                    x=df_daily["plot_dt"],
+                    y=df_daily["price_hourly"],
+                    mode="lines",
+                    name=zone_en,
+                    line=dict(color=_SERIES_COLORS[0], width=2.5),
+                    hovertemplate=(
+                        "%{x|%m/%d}<br>"
+                        f"<b>{zone_en}</b><br>"
+                        "<b>%{y:.2f} €/MW/h</b><extra></extra>"
+                    ),
+                ))
+                fig.update_layout(
+                    template="plotly_white",
+                    height=560,
+                    margin=dict(l=10, r=20, t=80, b=10),
+                    paper_bgcolor="#FAFBFD",
+                    plot_bgcolor="#FAFBFD",
+                    title=dict(
+                        text=chart_title,
+                        x=0.5, xanchor="center",
+                        font=dict(size=22, color="#0F172A", family="Inter, -apple-system, sans-serif"),
+                    ),
+                    legend=dict(
+                        orientation="h", yanchor="bottom", y=1.0, xanchor="right", x=1.0,
+                        bgcolor="rgba(0,0,0,0)", borderwidth=0, font=dict(size=14),
+                    ),
+                    xaxis=dict(
+                        showgrid=False, tickfont=_TICK_FONT, linecolor="#E2E8F0",
+                        title_font=_AXIS_FONT, tickformat="%m/%d",
+                    ),
+                    yaxis=dict(
+                        gridcolor="#EEF2F7", tickfont=_TICK_FONT, linecolor="#E2E8F0",
+                        zeroline=False,
+                        title_text="aFRR Capacity Price (€/MW/h)",
+                        title_font=dict(size=15, color="#64748B"),
+                    ),
+                    font=dict(family="Inter, -apple-system, sans-serif"),
+                    hoverlabel=dict(font_size=16, font_family="Inter, -apple-system, sans-serif"),
+                )
+                st.plotly_chart(fig, use_container_width=True)
+
+                avg_p = df_daily["price_hourly"].mean()
+                max_p = df_daily["price_hourly"].max()
+                min_p = df_daily["price_hourly"].min()
+                max_dt = df_daily.loc[df_daily["price_hourly"].idxmax(), "plot_dt"]
+                min_dt = df_daily.loc[df_daily["price_hourly"].idxmin(), "plot_dt"]
+                k1, k2, k3 = st.columns(3)
+                k1.metric("日均 aFRR 容量價格（均值）", f"{avg_p:.2f} €/MW/h")
+                k2.metric("最高日均價", f"{max_p:.2f} €/MW/h",
+                          delta=max_dt.strftime("%m/%d"), delta_color="off")
+                k3.metric("最低日均價", f"{min_p:.2f} €/MW/h",
+                          delta=min_dt.strftime("%m/%d"), delta_color="off")
+
+        elif compare_mode == "同一國家、不同年度區間":
+            # ── 區間數量 ──
+            n_series = st.number_input(
+                "區間數量（最少 2 個）",
+                min_value=2, max_value=6, value=2, step=1,
+                key="afrr_n_series",
+            )
+
             zone_key = st.selectbox(
                 "選擇國家 / 區域",
                 options=BALANCING_CAPACITY_SUPPORTED_COUNTRIES,
@@ -1212,7 +1409,110 @@ def render_chart_page(sub: str = "da") -> None:
                     with c2:
                         e = st.date_input("結束日期", value=date(2025 + i, 5, 10), key=f"afrr_e_{i}")
                     intervals.append({"start": s, "end": e, "zone": zone_key})
-        else:
+
+            # 6-4 🔹 繪圖按鈕：按下時打 API 並將結果存入 session state
+            st.markdown("")
+            if st.button("繪製圖表", type="primary", key="afrr_plot_btn"):
+                # ── 輸入驗證 ──
+                valid = True
+                for idx, iv in enumerate(intervals):
+                    if iv["start"] > iv["end"]:
+                        st.error(f"區間 {idx + 1}：開始日期不能晚於結束日期。")
+                        valid = False
+                if not valid:
+                    st.session_state["afrr_series_list"] = None
+                else:
+                    token = DEFAULT_ENTSOE_TOKEN
+                    if not token:
+                        st.error("系統尚未設定 ENTSO-E API Token，請聯絡維護人員。")
+                        st.session_state["afrr_series_list"] = None
+                    else:
+                        # 6-5 🔹 依序打 API、補值、前處理
+                        series_list: list[dict] = []
+                        with st.spinner("向 ENTSO-E 取得 aFRR 容量市場資料並前處理…"):
+                            for i, iv in enumerate(intervals):
+                                zone = iv["zone"]
+                                zone_en = SUPPORTED_COUNTRIES_EN.get(zone, zone)
+                                try:
+                                    _, raw_bytes = fetch_afrr_capacity_raw_csv_bytes(
+                                        start_date=iv["start"],
+                                        end_date=iv["end"],
+                                        country_code=zone,
+                                        token=token,
+                                    )
+                                    filled_bytes = fill_afrr_capacity_csv_bytes(raw_bytes)
+                                except Exception as e:
+                                    st.error(f"區間 {i + 1} API 失敗：{e}")
+                                    series_list = []
+                                    break
+
+                                df_daily = _afrr_15min_to_hourly(filled_bytes, direction_mode)
+                                if df_daily.empty:
+                                    st.warning(f"區間 {i + 1} 無 {direction_label} 方向資料。")
+                                    continue
+
+                                df_daily["plot_dt"] = pd.to_datetime(df_daily["delivery_date"])
+                                df_daily["plot_dt"] = df_daily["plot_dt"].apply(
+                                    lambda dt: dt.replace(year=2000)
+                                )
+                                short_label = str(iv["start"].year)
+                                full_label  = f"{iv['start'].year} ({iv['start'].strftime('%m/%d')}–{iv['end'].strftime('%m/%d')})"
+
+                                series_list.append({
+                                    "short_label": short_label,
+                                    "full_label":  full_label,
+                                    "zone_en":     zone_en,
+                                    "df":    df_daily,
+                                    "color": _SERIES_COLORS[i % len(_SERIES_COLORS)],
+                                    "iv":    iv,
+                                })
+
+                        if not series_list:
+                            st.warning("所有區間均無資料，無法繪圖。")
+                            st.session_state["afrr_series_list"] = None
+                        else:
+                            # 6-6 🔹 計算預設標題並寫入 session state
+                            _DIR_TITLE = {"Up": "Up", "Down": "Down", "Both": "Avg Up+Down"}
+                            dir_title = _DIR_TITLE.get(direction_mode, direction_mode)
+                            zone_en_title = SUPPORTED_COUNTRIES_EN.get(zone_key, zone_key)
+                            years_str     = " vs. ".join(str(s["iv"]["start"].year) for s in series_list)
+                            default_title = f"{zone_en_title} aFRR Capacity Price [{dir_title}] ({years_str})"
+                            st.session_state["afrr_series_list"] = series_list
+                            st.session_state["afrr_chart_title"] = default_title
+
+            # 6-7 🔹 圖表區塊：只要 session state 有資料就渲染（不依賴按鈕是否在此次 rerun 被按）
+            if st.session_state.get("afrr_series_list"):
+                series_list = st.session_state["afrr_series_list"]
+
+                chart_title = st.text_input(
+                    "✏️ 圖表主標題",
+                    key="afrr_chart_title",
+                )
+
+                fig = _build_afrr_overlay_chart(series_list, chart_title)
+                st.plotly_chart(fig, use_container_width=True)
+
+                st.markdown("**Daily Average aFRR Capacity Price by Series**")
+                kpi_cols = st.columns(len(series_list))
+                for col, s in zip(kpi_cols, series_list):
+                    avg_price = s["df"]["price_hourly"].mean()
+                    max_price = s["df"]["price_hourly"].max()
+                    max_dt    = s["df"].loc[s["df"]["price_hourly"].idxmax(), "plot_dt"]
+                    with col:
+                        st.metric(
+                            label=s["full_label"],
+                            value=f"{avg_price:.2f} €/MW/h",
+                            delta=f"Max {max_price:.2f} on {max_dt.strftime('%m/%d')}",
+                            delta_color="off",
+                        )
+
+        else:  # 同一年度區間、不同國家
+            n_series = st.number_input(
+                "區間數量（最少 2 個）",
+                min_value=2, max_value=6, value=2, step=1,
+                key="afrr_n_series",
+            )
+
             c1, c2 = st.columns(2)
             with c1:
                 shared_start = st.date_input("共用開始日期", value=date(2025, 1, 1), key="afrr_shared_s")
@@ -1232,110 +1532,93 @@ def render_chart_page(sub: str = "da") -> None:
                     )
                     intervals.append({"start": shared_start, "end": shared_end, "zone": z})
 
-        # 6-4 🔹 繪圖按鈕：按下時打 API 並將結果存入 session state
-        st.markdown("")
-        if st.button("繪製圖表", type="primary", key="afrr_plot_btn"):
-            # ── 輸入驗證 ──
-            valid = True
-            for idx, iv in enumerate(intervals):
-                if iv["start"] > iv["end"]:
-                    st.error(f"區間 {idx + 1}：開始日期不能晚於結束日期。")
-                    valid = False
-            if not valid:
-                st.session_state["afrr_series_list"] = None
-            else:
-                token = DEFAULT_ENTSOE_TOKEN
-                if not token:
-                    st.error("系統尚未設定 ENTSO-E API Token，請聯絡維護人員。")
+            st.markdown("")
+            if st.button("繪製圖表", type="primary", key="afrr_plot_btn"):
+                valid = True
+                for idx, iv in enumerate(intervals):
+                    if iv["start"] > iv["end"]:
+                        st.error(f"區間 {idx + 1}：開始日期不能晚於結束日期。")
+                        valid = False
+                if not valid:
                     st.session_state["afrr_series_list"] = None
                 else:
-                    # 6-5 🔹 依序打 API、補值、前處理
-                    series_list: list[dict] = []
-                    with st.spinner("向 ENTSO-E 取得 aFRR 容量市場資料並前處理…"):
-                        for i, iv in enumerate(intervals):
-                            zone = iv["zone"]
-                            zone_en = SUPPORTED_COUNTRIES_EN.get(zone, zone)
-                            try:
-                                _, raw_bytes = fetch_afrr_capacity_raw_csv_bytes(
-                                    start_date=iv["start"],
-                                    end_date=iv["end"],
-                                    country_code=zone,
-                                    token=token,
-                                )
-                                filled_bytes = fill_afrr_capacity_csv_bytes(raw_bytes)
-                            except Exception as e:
-                                st.error(f"區間 {i + 1} API 失敗：{e}")
-                                series_list = []
-                                break
+                    token = DEFAULT_ENTSOE_TOKEN
+                    if not token:
+                        st.error("系統尚未設定 ENTSO-E API Token，請聯絡維護人員。")
+                        st.session_state["afrr_series_list"] = None
+                    else:
+                        series_list = []
+                        with st.spinner("向 ENTSO-E 取得 aFRR 容量市場資料並前處理…"):
+                            for i, iv in enumerate(intervals):
+                                zone = iv["zone"]
+                                zone_en = SUPPORTED_COUNTRIES_EN.get(zone, zone)
+                                try:
+                                    _, raw_bytes = fetch_afrr_capacity_raw_csv_bytes(
+                                        start_date=iv["start"],
+                                        end_date=iv["end"],
+                                        country_code=zone,
+                                        token=token,
+                                    )
+                                    filled_bytes = fill_afrr_capacity_csv_bytes(raw_bytes)
+                                except Exception as e:
+                                    st.error(f"區間 {i + 1} API 失敗：{e}")
+                                    series_list = []
+                                    break
 
-                            df_daily = _afrr_15min_to_hourly(filled_bytes, direction_mode)
-                            if df_daily.empty:
-                                st.warning(f"區間 {i + 1} 無 {direction_label} 方向資料。")
-                                continue
+                                df_daily = _afrr_15min_to_hourly(filled_bytes, direction_mode)
+                                if df_daily.empty:
+                                    st.warning(f"區間 {i + 1} 無 {direction_label} 方向資料。")
+                                    continue
 
-                            df_daily["plot_dt"] = pd.to_datetime(df_daily["delivery_date"])
-                            if compare_mode == "同一國家、不同年度區間":
-                                df_daily["plot_dt"] = df_daily["plot_dt"].apply(
-                                    lambda dt: dt.replace(year=2000)
-                                )
-                                short_label = str(iv["start"].year)
-                                full_label  = f"{iv['start'].year} ({iv['start'].strftime('%m/%d')}–{iv['end'].strftime('%m/%d')})"
-                            else:
+                                df_daily["plot_dt"] = pd.to_datetime(df_daily["delivery_date"])
                                 short_label = zone_en
                                 full_label  = f"{zone_en} ({iv['start'].strftime('%Y/%m/%d')}–{iv['end'].strftime('%Y/%m/%d')})"
 
-                            series_list.append({
-                                "short_label": short_label,
-                                "full_label":  full_label,
-                                "zone_en":     zone_en,
-                                "df":    df_daily,
-                                "color": _SERIES_COLORS[i % len(_SERIES_COLORS)],
-                                "iv":    iv,
-                            })
+                                series_list.append({
+                                    "short_label": short_label,
+                                    "full_label":  full_label,
+                                    "zone_en":     zone_en,
+                                    "df":    df_daily,
+                                    "color": _SERIES_COLORS[i % len(_SERIES_COLORS)],
+                                    "iv":    iv,
+                                })
 
-                    if not series_list:
-                        st.warning("所有區間均無資料，無法繪圖。")
-                        st.session_state["afrr_series_list"] = None
-                    else:
-                        # 6-6 🔹 計算預設標題並寫入 session state
-                        _DIR_TITLE = {"Up": "Up", "Down": "Down", "Both": "Avg Up+Down"}
-                        dir_title = _DIR_TITLE.get(direction_mode, direction_mode)
-                        if compare_mode == "同一國家、不同年度區間":
-                            zone_en_title = SUPPORTED_COUNTRIES_EN.get(zone_key, zone_key)
-                            years_str     = " vs. ".join(str(s["iv"]["start"].year) for s in series_list)
-                            default_title = f"{zone_en_title} aFRR Capacity Price [{dir_title}] ({years_str})"
+                        if not series_list:
+                            st.warning("所有區間均無資料，無法繪圖。")
+                            st.session_state["afrr_series_list"] = None
                         else:
+                            _DIR_TITLE = {"Up": "Up", "Down": "Down", "Both": "Avg Up+Down"}
+                            dir_title = _DIR_TITLE.get(direction_mode, direction_mode)
                             zones_str     = " vs. ".join(s["short_label"] for s in series_list)
                             year_str      = str(intervals[0]["start"].year)
                             default_title = f"aFRR Capacity Price [{dir_title}]: {zones_str} ({year_str})"
-                        st.session_state["afrr_series_list"] = series_list
-                        st.session_state["afrr_chart_title"] = default_title
+                            st.session_state["afrr_series_list"] = series_list
+                            st.session_state["afrr_chart_title"] = default_title
 
-        # 6-7 🔹 圖表區塊：只要 session state 有資料就渲染（不依賴按鈕是否在此次 rerun 被按）
-        if st.session_state.get("afrr_series_list"):
-            series_list = st.session_state["afrr_series_list"]
+            if st.session_state.get("afrr_series_list"):
+                series_list = st.session_state["afrr_series_list"]
 
-            chart_title = st.text_input(
-                "✏️ 圖表主標題",
-                key="afrr_chart_title",
-            )
+                chart_title = st.text_input(
+                    "✏️ 圖表主標題",
+                    key="afrr_chart_title",
+                )
 
-            fig = _build_afrr_overlay_chart(series_list, chart_title)
-            st.plotly_chart(fig, use_container_width=True)
+                fig = _build_afrr_overlay_chart(series_list, chart_title)
+                st.plotly_chart(fig, use_container_width=True)
 
-            st.markdown("**Daily Average aFRR Capacity Price by Series**")
-            kpi_cols = st.columns(len(series_list))
-            for col, s in zip(kpi_cols, series_list):
-                avg_price = s["df"]["price_hourly"].mean()
-                max_price = s["df"]["price_hourly"].max()
-                max_dt    = s["df"].loc[s["df"]["price_hourly"].idxmax(), "plot_dt"]
-                with col:
-                    st.metric(
-                        label=s["full_label"],
-                        value=f"{avg_price:.2f} €/MW/h",
-                        delta=f"Max {max_price:.2f} on {max_dt.strftime('%m/%d')}",
-                        delta_color="off",
-                    )
+                st.markdown("**Daily Average aFRR Capacity Price by Series**")
+                kpi_cols = st.columns(len(series_list))
+                for col, s in zip(kpi_cols, series_list):
+                    avg_price = s["df"]["price_hourly"].mean()
+                    max_price = s["df"]["price_hourly"].max()
+                    max_dt    = s["df"].loc[s["df"]["price_hourly"].idxmax(), "plot_dt"]
+                    with col:
+                        st.metric(
+                            label=s["full_label"],
+                            value=f"{avg_price:.2f} €/MW/h",
+                            delta=f"Max {max_price:.2f} on {max_dt.strftime('%m/%d')}",
+                            delta_color="off",
+                        )
         return
 
     # ── 以下為 DA 日前電價市場 ──
@@ -1345,21 +1628,173 @@ def render_chart_page(sub: str = "da") -> None:
     # ── 比較模式選擇 ──
     compare_mode = st.radio(
         "比較模式",
-        ["同一國家、不同年度區間", "同一年度區間、不同國家"],
+        ["單一國家單一區間", "同一國家、不同年度區間", "同一年度區間、不同國家"],
         horizontal=True,
         label_visibility="collapsed",
     )
 
     st.divider()
 
-    # ── 共用：區間數量 ──
-    n_series = st.number_input(
-        "區間數量（最少 2 個）",
-        min_value=2, max_value=6, value=2, step=1,
-    )
-
     # 6-3 🔹 依比較模式渲染輸入區
-    if compare_mode == "同一國家、不同年度區間":
+
+    # ── 單一國家單一區間 ──
+    if compare_mode == "單一國家單一區間":
+        c1, c2, c3 = st.columns([2, 1, 1])
+        with c1:
+            zone_key = st.selectbox(
+                "選擇國家 / 區域",
+                options=DA_SUPPORTED_COUNTRIES,
+                format_func=lambda c: SUPPORTED_COUNTRIES[c],
+                key="da_single_zone",
+            )
+        with c2:
+            single_start = st.date_input("開始日期", value=date(2025, 1, 1), key="da_single_s")
+        with c3:
+            single_end   = st.date_input("結束日期",   value=date(2025, 5, 10), key="da_single_e")
+
+        st.markdown("")
+        if st.button("繪製圖表", type="primary", key="da_single_plot_btn"):
+            if single_start > single_end:
+                st.error("開始日期不能晚於結束日期。")
+                st.session_state["da_single_df"] = None
+            else:
+                with st.spinner("從 Supabase 載入資料…"):
+                    try:
+                        df = fetch_daily_avg_prices(
+                            zones=(zone_key,),
+                            start_date=single_start.isoformat(),
+                            end_date=single_end.isoformat(),
+                        )
+                    except Exception as e:
+                        st.error(f"資料載入失敗：{e}")
+                        df = pd.DataFrame()
+
+                if df.empty:
+                    st.warning(f"查無 {zone_key} 在 {single_start} ～ {single_end} 的資料。")
+                    st.session_state["da_single_df"] = None
+                else:
+                    df = df[df["zone_key"] == zone_key].copy()
+                    df = df.sort_values("delivery_date")
+                    zone_en = SUPPORTED_COUNTRIES_EN.get(zone_key, zone_key)
+                    st.session_state["da_single_df"]      = df
+                    st.session_state["da_single_zone_en"] = zone_en
+                    date_range = f"{single_start.strftime('%Y/%m/%d')}–{single_end.strftime('%Y/%m/%d')}"
+                    st.session_state["da_single_title"]   = f"{zone_en} Day-Ahead Price ({date_range})"
+
+        if st.session_state.get("da_single_df") is not None:
+            df       = st.session_state["da_single_df"]
+            zone_en  = st.session_state["da_single_zone_en"]
+
+            chart_title = st.text_input(
+                "✏️ 圖表主標題",
+                key="da_single_title",
+            )
+
+            tab_price, tab_spread = st.tabs(["📈 電價趨勢", "💹 套利潛能（Spread）"])
+
+            # ── Tab 1：電價趨勢（均價 + 最高/最低 + 陰影） ──
+            with tab_price:
+                _AXIS_FONT = dict(size=15, color="#64748B")
+                _TICK_FONT = dict(size=14, color="#64748B")
+
+                fig_price = go.Figure()
+                fig_price.add_trace(go.Scatter(
+                    x=pd.concat([df["delivery_date"], df["delivery_date"].iloc[::-1]]),
+                    y=pd.concat([df["max_price"], df["min_price"].iloc[::-1]]),
+                    fill="toself",
+                    fillcolor="rgba(37,99,235,0.10)",
+                    line=dict(color="rgba(0,0,0,0)"),
+                    hoverinfo="skip",
+                    showlegend=False,
+                    name="Max–Min Range",
+                ))
+                fig_price.add_trace(go.Scatter(
+                    x=df["delivery_date"], y=df["max_price"],
+                    mode="lines", name="Daily Max",
+                    line=dict(color="#93C5FD", width=1.5, dash="dot"),
+                    hovertemplate="%{x|%m/%d}<br><b>Max %{y:.2f} €/MWh</b><extra></extra>",
+                ))
+                fig_price.add_trace(go.Scatter(
+                    x=df["delivery_date"], y=df["avg_price"],
+                    mode="lines", name="Daily Avg",
+                    line=dict(color="#2563EB", width=2.5),
+                    hovertemplate="%{x|%m/%d}<br><b>Avg %{y:.2f} €/MWh</b><extra></extra>",
+                ))
+                fig_price.add_trace(go.Scatter(
+                    x=df["delivery_date"], y=df["min_price"],
+                    mode="lines", name="Daily Min",
+                    line=dict(color="#BFDBFE", width=1.5, dash="dot"),
+                    hovertemplate="%{x|%m/%d}<br><b>Min %{y:.2f} €/MWh</b><extra></extra>",
+                ))
+                fig_price.update_layout(
+                    template="plotly_white", height=560,
+                    margin=dict(l=10, r=20, t=80, b=10),
+                    paper_bgcolor="#FAFBFD", plot_bgcolor="#FAFBFD",
+                    title=dict(text=chart_title, x=0.5, xanchor="center",
+                               font=dict(size=22, color="#0F172A", family="Inter, -apple-system, sans-serif")),
+                    legend=dict(orientation="h", yanchor="bottom", y=1.0, xanchor="right", x=1.0,
+                                bgcolor="rgba(0,0,0,0)", borderwidth=0, font=dict(size=14)),
+                    xaxis=dict(showgrid=False, tickfont=_TICK_FONT, linecolor="#E2E8F0",
+                               title_font=_AXIS_FONT, tickformat="%m/%d"),
+                    yaxis=dict(gridcolor="#EEF2F7", tickfont=_TICK_FONT, linecolor="#E2E8F0",
+                               zeroline=False, title_text="Day-Ahead Price (€/MWh)",
+                               title_font=dict(size=15, color="#64748B")),
+                    font=dict(family="Inter, -apple-system, sans-serif"),
+                    hoverlabel=dict(font_size=16, font_family="Inter, -apple-system, sans-serif"),
+                )
+                st.plotly_chart(fig_price, use_container_width=True)
+
+                k1, k2, k3 = st.columns(3)
+                k1.metric("均價", f"{df['avg_price'].mean():.2f} €/MWh")
+                k2.metric("最高均價", f"{df['avg_price'].max():.2f} €/MWh",
+                          delta=df.loc[df['avg_price'].idxmax(), 'delivery_date'].strftime('%m/%d'),
+                          delta_color="off")
+                k3.metric("最低均價", f"{df['avg_price'].min():.2f} €/MWh",
+                          delta=df.loc[df['avg_price'].idxmin(), 'delivery_date'].strftime('%m/%d'),
+                          delta_color="off")
+
+            # ── Tab 2：套利潛能（Spread 折線） ──
+            with tab_spread:
+                fig_spread = go.Figure()
+                fig_spread.add_trace(go.Scatter(
+                    x=df["delivery_date"], y=df["spread"],
+                    mode="lines", name="Daily Spread",
+                    line=dict(color="#059669", width=2),
+                    hovertemplate="%{x|%m/%d}<br><b>Spread %{y:.2f} €/MWh</b><extra></extra>",
+                ))
+                fig_spread.update_layout(
+                    template="plotly_white", height=560,
+                    margin=dict(l=10, r=20, t=80, b=10),
+                    paper_bgcolor="#FAFBFD", plot_bgcolor="#FAFBFD",
+                    title=dict(text=chart_title, x=0.5, xanchor="center",
+                               font=dict(size=22, color="#0F172A", family="Inter, -apple-system, sans-serif")),
+                    legend=dict(orientation="h", yanchor="bottom", y=1.0, xanchor="right", x=1.0,
+                                bgcolor="rgba(0,0,0,0)", borderwidth=0, font=dict(size=14)),
+                    xaxis=dict(showgrid=False, tickfont=_TICK_FONT, linecolor="#E2E8F0",
+                               title_font=_AXIS_FONT, tickformat="%m/%d"),
+                    yaxis=dict(gridcolor="#EEF2F7", tickfont=_TICK_FONT, linecolor="#E2E8F0",
+                               zeroline=False, title_text="Daily Price Spread (€/MWh)",
+                               title_font=dict(size=15, color="#64748B")),
+                    font=dict(family="Inter, -apple-system, sans-serif"),
+                    hoverlabel=dict(font_size=16, font_family="Inter, -apple-system, sans-serif"),
+                )
+                st.plotly_chart(fig_spread, use_container_width=True)
+
+                k1, k2, k3 = st.columns(3)
+                k1.metric("平均日內 Spread", f"{df['spread'].mean():.2f} €/MWh")
+                k2.metric("最高 Spread", f"{df['spread'].max():.2f} €/MWh",
+                          delta=df.loc[df['spread'].idxmax(), 'delivery_date'].strftime('%m/%d'),
+                          delta_color="off")
+                k3.metric("最低 Spread", f"{df['spread'].min():.2f} €/MWh",
+                          delta=df.loc[df['spread'].idxmin(), 'delivery_date'].strftime('%m/%d'),
+                          delta_color="off")
+
+    elif compare_mode == "同一國家、不同年度區間":
+        # ── 共用：區間數量 ──
+        n_series = st.number_input(
+            "區間數量（最少 2 個）",
+            min_value=2, max_value=6, value=2, step=1,
+        )
 
         zone_key = st.selectbox(
             "選擇國家 / 區域",
@@ -1390,7 +1825,121 @@ def render_chart_page(sub: str = "da") -> None:
                     )
                 intervals.append({"start": s, "end": e, "zone": zone_key})
 
+        # 6-4 🔹 繪圖按鈕：按下時取資料並將結果存入 session state
+        st.markdown("")
+        if st.button("繪製圖表", type="primary", key="da_overlay_plot_btn"):
+            # ── 輸入驗證 ──
+            valid = True
+            for idx, iv in enumerate(intervals):
+                if iv["start"] > iv["end"]:
+                    st.error(f"區間 {idx + 1}：開始日期不能晚於結束日期。")
+                    valid = False
+            if not valid:
+                st.session_state["da_series_list"] = None
+            else:
+                # 6-5 🔹 從 Supabase 取資料
+                series_list: list[dict] = []
+                with st.spinner("從 Supabase 載入資料…"):
+                    for i, iv in enumerate(intervals):
+                        zone = iv["zone"]
+                        try:
+                            df = fetch_daily_avg_prices(
+                                zones=(zone,),
+                                start_date=iv["start"].isoformat(),
+                                end_date=iv["end"].isoformat(),
+                            )
+                        except Exception as e:
+                            st.error(f"資料載入失敗（區間 {i + 1}）：{e}")
+                            series_list = []
+                            break
+
+                        if df.empty:
+                            st.warning(f"區間 {i + 1} 無資料（{iv['start']} ～ {iv['end']}，{zone}）")
+                            continue
+
+                        df = df[df["zone_key"] == zone].copy()
+                        if df.empty:
+                            st.warning(f"區間 {i + 1} 無 {zone} 的資料。")
+                            continue
+
+                        zone_en = SUPPORTED_COUNTRIES_EN.get(zone, zone)
+                        df["plot_date"] = df["delivery_date"].apply(
+                            lambda d: d.replace(year=2000)
+                        )
+                        short_label = str(iv["start"].year)
+                        full_label  = f"{iv['start'].year} ({iv['start'].strftime('%m/%d')}–{iv['end'].strftime('%m/%d')})"
+
+                        series_list.append({
+                            "short_label": short_label,
+                            "full_label":  full_label,
+                            "zone_en":     zone_en,
+                            "df":    df,
+                            "color": _SERIES_COLORS[i % len(_SERIES_COLORS)],
+                            "iv":    iv,
+                        })
+
+                if not series_list:
+                    st.warning("所有區間均無資料，無法繪圖。")
+                    st.session_state["da_series_list"] = None
+                else:
+                    # 6-6 🔹 計算預設標題並寫入 session state
+                    zone_en_title = SUPPORTED_COUNTRIES_EN.get(zone_key, zone_key)
+                    years_str     = " vs. ".join(str(s["iv"]["start"].year) for s in series_list)
+                    default_title = f"{zone_en_title} Daily Price Spread ({years_str})"
+                    st.session_state["da_series_list"] = series_list
+                    st.session_state["da_chart_title"] = default_title
+
+        # 6-7 🔹 圖表區塊：只要 session state 有資料就渲染（不依賴按鈕是否在此次 rerun 被按）
+        if st.session_state.get("da_series_list"):
+            series_list = st.session_state["da_series_list"]
+
+            chart_title = st.text_input(
+                "✏️ 圖表主標題",
+                key="da_chart_title",
+            )
+
+            tab_price, tab_spread = st.tabs(["📈 電價趨勢", "💹 套利潛能（Spread）"])
+
+            with tab_price:
+                fig_price = _build_avg_price_overlay_chart(series_list, chart_title)
+                st.plotly_chart(fig_price, use_container_width=True)
+                st.markdown("**Average Daily Price by Series**")
+                kpi_cols = st.columns(len(series_list))
+                for col, s in zip(kpi_cols, series_list):
+                    avg_price = s["df"]["avg_price"].mean()
+                    max_price = s["df"]["avg_price"].max()
+                    max_date  = s["df"].loc[s["df"]["avg_price"].idxmax(), "delivery_date"]
+                    with col:
+                        st.metric(
+                            label=s["full_label"],
+                            value=f"{avg_price:.2f} €/MWh",
+                            delta=f"Max {max_price:.2f} on {max_date.strftime('%m/%d')}",
+                            delta_color="off",
+                        )
+
+            with tab_spread:
+                fig_spread = _build_spread_overlay_chart(series_list, chart_title)
+                st.plotly_chart(fig_spread, use_container_width=True)
+                st.markdown("**Average Daily Price Spread by Series**")
+                kpi_cols = st.columns(len(series_list))
+                for col, s in zip(kpi_cols, series_list):
+                    avg_spread = s["df"]["spread"].mean()
+                    max_spread = s["df"]["spread"].max()
+                    max_date   = s["df"].loc[s["df"]["spread"].idxmax(), "delivery_date"]
+                    with col:
+                        st.metric(
+                            label=s["full_label"],
+                            value=f"{avg_spread:.2f} €/MWh",
+                            delta=f"Max {max_spread:.2f} on {max_date.strftime('%m/%d')}",
+                            delta_color="off",
+                        )
+
     else:  # 同一年度區間、不同國家
+        n_series = st.number_input(
+            "區間數量（最少 2 個）",
+            min_value=2, max_value=6, value=2, step=1,
+        )
+
         c1, c2 = st.columns(2)
         with c1:
             shared_start = st.date_input("共用開始日期", value=date(2025, 1, 1), key="chart_shared_s")
@@ -1411,102 +1960,104 @@ def render_chart_page(sub: str = "da") -> None:
                 )
                 intervals.append({"start": shared_start, "end": shared_end, "zone": z})
 
-    # 6-4 🔹 繪圖按鈕：按下時取資料並將結果存入 session state
-    st.markdown("")
-    if st.button("繪製圖表", type="primary"):
-        # ── 輸入驗證 ──
-        valid = True
-        for idx, iv in enumerate(intervals):
-            if iv["start"] > iv["end"]:
-                st.error(f"區間 {idx + 1}：開始日期不能晚於結束日期。")
-                valid = False
-        if not valid:
-            st.session_state["da_series_list"] = None
-        else:
-            # 6-5 🔹 從 Supabase 取資料
-            series_list: list[dict] = []
-            with st.spinner("從 Supabase 載入資料…"):
-                for i, iv in enumerate(intervals):
-                    zone = iv["zone"]
-                    try:
-                        df = fetch_daily_avg_prices(
-                            zones=(zone,),
-                            start_date=iv["start"].isoformat(),
-                            end_date=iv["end"].isoformat(),
-                        )
-                    except Exception as e:
-                        st.error(f"資料載入失敗（區間 {i + 1}）：{e}")
-                        series_list = []
-                        break
+        st.markdown("")
+        if st.button("繪製圖表", type="primary", key="da_cross_plot_btn"):
+            valid = True
+            for idx, iv in enumerate(intervals):
+                if iv["start"] > iv["end"]:
+                    st.error(f"區間 {idx + 1}：開始日期不能晚於結束日期。")
+                    valid = False
+            if not valid:
+                st.session_state["da_series_list"] = None
+            else:
+                series_list = []
+                with st.spinner("從 Supabase 載入資料…"):
+                    for i, iv in enumerate(intervals):
+                        zone = iv["zone"]
+                        try:
+                            df = fetch_daily_avg_prices(
+                                zones=(zone,),
+                                start_date=iv["start"].isoformat(),
+                                end_date=iv["end"].isoformat(),
+                            )
+                        except Exception as e:
+                            st.error(f"資料載入失敗（區間 {i + 1}）：{e}")
+                            series_list = []
+                            break
 
-                    if df.empty:
-                        st.warning(f"區間 {i + 1} 無資料（{iv['start']} ～ {iv['end']}，{zone}）")
-                        continue
+                        if df.empty:
+                            st.warning(f"區間 {i + 1} 無資料（{iv['start']} ～ {iv['end']}，{zone}）")
+                            continue
 
-                    df = df[df["zone_key"] == zone].copy()
-                    if df.empty:
-                        st.warning(f"區間 {i + 1} 無 {zone} 的資料。")
-                        continue
+                        df = df[df["zone_key"] == zone].copy()
+                        if df.empty:
+                            st.warning(f"區間 {i + 1} 無 {zone} 的資料。")
+                            continue
 
-                    zone_en = SUPPORTED_COUNTRIES_EN.get(zone, zone)
-                    if compare_mode == "同一國家、不同年度區間":
-                        df["plot_date"] = df["delivery_date"].apply(
-                            lambda d: d.replace(year=2000)
-                        )
-                        short_label = str(iv["start"].year)
-                        full_label  = f"{iv['start'].year} ({iv['start'].strftime('%m/%d')}–{iv['end'].strftime('%m/%d')})"
-                    else:
+                        zone_en = SUPPORTED_COUNTRIES_EN.get(zone, zone)
                         df["plot_date"] = df["delivery_date"]
                         short_label = zone_en
                         full_label  = f"{zone_en} ({iv['start'].strftime('%Y/%m/%d')}–{iv['end'].strftime('%Y/%m/%d')})"
 
-                    series_list.append({
-                        "short_label": short_label,
-                        "full_label":  full_label,
-                        "zone_en":     zone_en,
-                        "df":    df,
-                        "color": _SERIES_COLORS[i % len(_SERIES_COLORS)],
-                        "iv":    iv,
-                    })
+                        series_list.append({
+                            "short_label": short_label,
+                            "full_label":  full_label,
+                            "zone_en":     zone_en,
+                            "df":    df,
+                            "color": _SERIES_COLORS[i % len(_SERIES_COLORS)],
+                            "iv":    iv,
+                        })
 
-            if not series_list:
-                st.warning("所有區間均無資料，無法繪圖。")
-                st.session_state["da_series_list"] = None
-            else:
-                # 6-6 🔹 計算預設標題並寫入 session state
-                if compare_mode == "同一國家、不同年度區間":
-                    zone_en_title = SUPPORTED_COUNTRIES_EN.get(zone_key, zone_key)
-                    years_str     = " vs. ".join(str(s["iv"]["start"].year) for s in series_list)
-                    default_title = f"{zone_en_title} Daily Price Spread ({years_str})"
+                if not series_list:
+                    st.warning("所有區間均無資料，無法繪圖。")
+                    st.session_state["da_series_list"] = None
                 else:
                     zones_str     = " vs. ".join(s["short_label"] for s in series_list)
                     year_str      = str(intervals[0]["start"].year)
                     default_title = f"Daily Price Spread: {zones_str} ({year_str})"
-                st.session_state["da_series_list"] = series_list
-                st.session_state["da_chart_title"] = default_title
+                    st.session_state["da_series_list"] = series_list
+                    st.session_state["da_chart_title"] = default_title
 
-    # 6-7 🔹 圖表區塊：只要 session state 有資料就渲染（不依賴按鈕是否在此次 rerun 被按）
-    if st.session_state.get("da_series_list"):
-        series_list = st.session_state["da_series_list"]
+        if st.session_state.get("da_series_list"):
+            series_list = st.session_state["da_series_list"]
 
-        chart_title = st.text_input(
-            "✏️ 圖表主標題",
-            key="da_chart_title",
-        )
+            chart_title = st.text_input(
+                "✏️ 圖表主標題",
+                key="da_chart_title",
+            )
 
-        fig = _build_spread_overlay_chart(series_list, chart_title)
-        st.plotly_chart(fig, use_container_width=True)
+            tab_price, tab_spread = st.tabs(["📈 電價趨勢", "💹 套利潛能（Spread）"])
 
-        st.markdown("**Average Daily Price Spread by Series**")
-        kpi_cols = st.columns(len(series_list))
-        for col, s in zip(kpi_cols, series_list):
-            avg_spread = s["df"]["spread"].mean()
-            max_spread = s["df"]["spread"].max()
-            max_date   = s["df"].loc[s["df"]["spread"].idxmax(), "delivery_date"]
-            with col:
-                st.metric(
-                    label=s["full_label"],
-                    value=f"{avg_spread:.2f} €/MWh",
-                    delta=f"Max {max_spread:.2f} on {max_date.strftime('%m/%d')}",
-                    delta_color="off",
-                )
+            with tab_price:
+                fig_price = _build_avg_price_overlay_chart(series_list, chart_title)
+                st.plotly_chart(fig_price, use_container_width=True)
+                st.markdown("**Average Daily Price by Series**")
+                kpi_cols = st.columns(len(series_list))
+                for col, s in zip(kpi_cols, series_list):
+                    avg_price = s["df"]["avg_price"].mean()
+                    max_price = s["df"]["avg_price"].max()
+                    max_date  = s["df"].loc[s["df"]["avg_price"].idxmax(), "delivery_date"]
+                    with col:
+                        st.metric(
+                            label=s["full_label"],
+                            value=f"{avg_price:.2f} €/MWh",
+                            delta=f"Max {max_price:.2f} on {max_date.strftime('%m/%d')}",
+                            delta_color="off",
+                        )
+
+            with tab_spread:
+                fig_spread = _build_spread_overlay_chart(series_list, chart_title)
+                st.plotly_chart(fig_spread, use_container_width=True)
+                st.markdown("**Average Daily Price Spread by Series**")
+                kpi_cols = st.columns(len(series_list))
+                for col, s in zip(kpi_cols, series_list):
+                    avg_spread = s["df"]["spread"].mean()
+                    max_spread = s["df"]["spread"].max()
+                    max_date   = s["df"].loc[s["df"]["spread"].idxmax(), "delivery_date"]
+                    with col:
+                        st.metric(
+                            label=s["full_label"],
+                            value=f"{avg_spread:.2f} €/MWh",
+                            delta=f"Max {max_spread:.2f} on {max_date.strftime('%m/%d')}",
+                            delta_color="off",
+                        )
