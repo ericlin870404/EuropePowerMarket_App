@@ -48,7 +48,7 @@ from services.afrr_fetcher import (
     fetch_afrr_capacity_raw_csv_bytes,
     fill_afrr_capacity_csv_bytes,
 )
-from services.supabase_reader import fetch_daily_avg_prices
+from services.supabase_reader import fetch_daily_avg_prices, fetch_negative_price_stats
 from ui.ui_theme import inject_dashboard_css, kpi_card, zone_header_html
 
 # Dashboard 顯示的國家順序
@@ -1656,7 +1656,8 @@ def render_chart_page(sub: str = "da") -> None:
         if st.button("繪製圖表", type="primary", key="da_single_plot_btn"):
             if single_start > single_end:
                 st.error("開始日期不能晚於結束日期。")
-                st.session_state["da_single_df"] = None
+                st.session_state["da_single_df"]     = None
+                st.session_state["da_single_neg_df"] = None
             else:
                 with st.spinner("從 Supabase 載入資料…"):
                     try:
@@ -1669,28 +1670,41 @@ def render_chart_page(sub: str = "da") -> None:
                         st.error(f"資料載入失敗：{e}")
                         df = pd.DataFrame()
 
+                    try:
+                        neg_df = fetch_negative_price_stats(
+                            zone=zone_key,
+                            start_date=single_start.isoformat(),
+                            end_date=single_end.isoformat(),
+                        )
+                    except Exception as e:
+                        st.warning(f"負電價統計載入失敗：{e}")
+                        neg_df = pd.DataFrame()
+
                 if df.empty:
                     st.warning(f"查無 {zone_key} 在 {single_start} ～ {single_end} 的資料。")
-                    st.session_state["da_single_df"] = None
+                    st.session_state["da_single_df"]     = None
+                    st.session_state["da_single_neg_df"] = None
                 else:
                     df = df[df["zone_key"] == zone_key].copy()
                     df = df.sort_values("delivery_date")
                     zone_en = SUPPORTED_COUNTRIES_EN.get(zone_key, zone_key)
                     st.session_state["da_single_df"]      = df
                     st.session_state["da_single_zone_en"] = zone_en
+                    st.session_state["da_single_neg_df"]  = neg_df
                     date_range = f"{single_start.strftime('%Y/%m/%d')}–{single_end.strftime('%Y/%m/%d')}"
                     st.session_state["da_single_title"]   = f"{zone_en} Day-Ahead Price ({date_range})"
 
         if st.session_state.get("da_single_df") is not None:
             df       = st.session_state["da_single_df"]
             zone_en  = st.session_state["da_single_zone_en"]
+            neg_df   = st.session_state.get("da_single_neg_df", pd.DataFrame())
 
             chart_title = st.text_input(
                 "✏️ 圖表主標題",
                 key="da_single_title",
             )
 
-            tab_price, tab_spread = st.tabs(["📈 電價趨勢", "💹 套利潛能（Spread）"])
+            tab_price, tab_spread, tab_neg = st.tabs(["📈 電價趨勢", "💹 套利潛能（Spread）", "⚡ 負電價統計"])
 
             # ── Tab 1：電價趨勢（均價 + 最高/最低 + 陰影） ──
             with tab_price:
@@ -1788,6 +1802,116 @@ def render_chart_page(sub: str = "da") -> None:
                 k3.metric("最低 Spread", f"{df['spread'].min():.2f} €/MWh",
                           delta=df.loc[df['spread'].idxmin(), 'delivery_date'].strftime('%m/%d'),
                           delta_color="off")
+
+            # ── Tab 3：負電價統計 ──
+            with tab_neg:
+                if neg_df.empty:
+                    st.info("無法取得每 15 分鐘原始資料，負電價統計不可用。")
+                else:
+                    # ── 確保型別並建立月份欄位 ──
+                    neg_df = neg_df.copy()
+                    neg_df["delivery_date"] = pd.to_datetime(neg_df["delivery_date"])
+                    neg_df["neg_day"]   = neg_df["neg_day"].astype(bool)
+                    neg_df["neg_hours"] = pd.to_numeric(neg_df["neg_hours"], errors="coerce").fillna(0).astype(int)
+                    neg_df["year_month"] = neg_df["delivery_date"].dt.to_period("M")
+
+                    # ── 月份彙總 ──
+                    monthly = (
+                        neg_df.groupby("year_month", as_index=False)
+                        .agg(neg_days=("neg_day", "sum"), neg_hours=("neg_hours", "sum"))
+                    )
+                    monthly["month_str"] = monthly["year_month"].dt.strftime("%Y-%m")
+
+                    total_days  = int(neg_df["neg_day"].sum())
+                    total_hours = int(neg_df["neg_hours"].sum())
+                    total_range = len(neg_df)
+
+                    # ── KPI ──
+                    k1, k2, k3 = st.columns(3)
+                    k1.metric("負電價天數", f"{total_days} 天",
+                              delta=f"占區間 {total_days/total_range*100:.1f}%", delta_color="off")
+                    k2.metric("負電價小時數", f"{total_hours} 小時")
+                    k3.metric("平均負電價小時／負電價天", f"{total_hours/total_days:.1f} h" if total_days else "—")
+
+                    st.markdown("")
+
+                    # ── 圖表樣式常數 ──
+                    _AXIS_FONT = dict(size=14, color="#64748B")
+                    _TICK_FONT = dict(size=13, color="#64748B")
+                    _LAYOUT_BASE = dict(
+                        template="plotly_white",
+                        margin=dict(l=10, r=20, t=70, b=10),
+                        paper_bgcolor="#FAFBFD", plot_bgcolor="#FAFBFD",
+                        font=dict(family="Inter, -apple-system, sans-serif"),
+                        hoverlabel=dict(font_size=15, font_family="Inter, -apple-system, sans-serif"),
+                        xaxis=dict(showgrid=False, tickfont=_TICK_FONT, linecolor="#E2E8F0",
+                                   title_font=_AXIS_FONT, type="category"),
+                        legend=dict(orientation="h", yanchor="bottom", y=1.0, xanchor="right", x=1.0,
+                                    bgcolor="rgba(0,0,0,0)", borderwidth=0, font=dict(size=13)),
+                    )
+
+                    # ── 圖一：負電價天數（每月累計） ──
+                    fig_days = go.Figure()
+                    fig_days.add_trace(go.Bar(
+                        x=monthly["month_str"],
+                        y=monthly["neg_days"],
+                        name="負電價天數",
+                        marker_color="#DC2626",
+                        opacity=0.85,
+                        hovertemplate="%{x}<br><b>負電價天數：%{y} 天</b><extra></extra>",
+                    ))
+                    fig_days.update_layout(
+                        **_LAYOUT_BASE,
+                        height=380,
+                        title=dict(
+                            text=f"{zone_en} — 負電價天數（每月累計）",
+                            x=0.5, xanchor="center",
+                            font=dict(size=20, color="#0F172A", family="Inter, -apple-system, sans-serif"),
+                        ),
+                        yaxis=dict(
+                            gridcolor="#EEF2F7", tickfont=_TICK_FONT, linecolor="#E2E8F0",
+                            zeroline=False, title_text="天數",
+                            title_font=dict(size=14, color="#64748B"),
+                            dtick=1,
+                        ),
+                    )
+                    st.plotly_chart(fig_days, use_container_width=True)
+
+                    # ── 圖二：負電價小時數（每月累計） ──
+                    fig_hours = go.Figure()
+                    fig_hours.add_trace(go.Bar(
+                        x=monthly["month_str"],
+                        y=monthly["neg_hours"],
+                        name="負電價小時數",
+                        marker_color="#7C3AED",
+                        opacity=0.85,
+                        hovertemplate="%{x}<br><b>負電價小時數：%{y} 小時</b><extra></extra>",
+                    ))
+                    fig_hours.update_layout(
+                        **_LAYOUT_BASE,
+                        height=380,
+                        title=dict(
+                            text=f"{zone_en} — 負電價小時數（每月累計）",
+                            x=0.5, xanchor="center",
+                            font=dict(size=20, color="#0F172A", family="Inter, -apple-system, sans-serif"),
+                        ),
+                        yaxis=dict(
+                            gridcolor="#EEF2F7", tickfont=_TICK_FONT, linecolor="#E2E8F0",
+                            zeroline=False, title_text="小時數",
+                            title_font=dict(size=14, color="#64748B"),
+                        ),
+                    )
+                    st.plotly_chart(fig_hours, use_container_width=True)
+
+                    # ── 細節：列出有負電價的日期 ──
+                    with st.expander("查看負電價日期明細"):
+                        neg_days_df = neg_df[neg_df["neg_day"]].copy()
+                        neg_days_df["delivery_date"] = neg_days_df["delivery_date"].dt.strftime("%Y-%m-%d")
+                        neg_days_df = neg_days_df.rename(columns={
+                            "delivery_date": "日期",
+                            "neg_hours": "負電價小時數",
+                        })[["日期", "負電價小時數"]].reset_index(drop=True)
+                        st.dataframe(neg_days_df, use_container_width=True, hide_index=True)
 
     elif compare_mode == "同一國家、不同年度區間":
         # ── 共用：區間數量 ──
